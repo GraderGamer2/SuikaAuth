@@ -509,7 +509,12 @@ mod tests {
         let leftovers = fs::read_dir(store.directory())
             .expect("directory should be readable")
             .filter_map(Result::ok)
-            .filter(|entry| entry.file_name().to_string_lossy().starts_with(".vault.tmp-"))
+            .filter(|entry| {
+                entry
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with(".vault.tmp-")
+            })
             .count();
         assert_eq!(leftovers, 0, "failed save must clean its temporary file");
     }
@@ -531,7 +536,10 @@ mod tests {
         .expect("simulated leftover should be written");
 
         let reopened = VaultStore::open(&app_directory).expect("store should reopen");
-        assert_eq!(reopened.load().expect("committed vault should load"), original);
+        assert_eq!(
+            reopened.load().expect("committed vault should load"),
+            original
+        );
     }
 
     #[test]
