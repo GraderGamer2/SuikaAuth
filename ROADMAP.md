@@ -2,7 +2,7 @@
 
 This is the authoritative project roadmap. Update its checkboxes and the changelog as work is completed. Development follows this order unless a security or correctness issue requires reordering.
 
-Status: **Milestone 3 — encrypted vault container and storage in progress**
+Status: **Milestone 4 — Linux native frontend**
 
 ## 1. Repository and architecture foundation
 
@@ -79,7 +79,8 @@ Status: **Milestone 3 — encrypted vault container and storage in progress**
 - [ ] Review threat model and cryptographic implementation.
 - [ ] Audit direct and transitive dependencies.
 - [ ] Commit and review Cargo.lock.
-- [ ] Test file replacement and recovery behavior under interruption.
+- [x] Test file replacement and recovery behavior under interruption.
+- [ ] Perform abrupt process-kill and power-loss durability tests on target Linux and Android filesystems.
 - [ ] Measure idle RAM, unlocked RAM, binary/APK size, and vault unlock latency.
 - [ ] Review logs, crash output, permissions, clipboard behavior, and memory lifetime.
 - [ ] Add production signing and release provenance only after the release process is designed.

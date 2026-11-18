@@ -45,6 +45,8 @@ Because the temporary file is in the same directory, the rename is atomic on the
 
 The storage layer does not defend against a fully compromised process or a malicious actor running under the same user identity who can continuously race filesystem operations. Its scope is safe ordinary operation, accidental corruption resistance, and protection against common path/file mistakes.
 
+CI tests inject a failure after the encrypted temporary file has been synced but before rename, verifying that the prior vault remains committed and the temporary file is removed. A separate restart test leaves a partial temporary file to simulate a process crash and confirms that reopening the store still loads only the previous vault. Abrupt process-kill and power-loss durability testing on the actual release filesystems remains pending.
+
 ## Interrupted writes and crash behavior
 
 If an ordinary write, flush, or pre-rename operation fails, the pending-file guard removes the temporary file and the previous vault remains untouched. This path is covered by a failure-injection test.

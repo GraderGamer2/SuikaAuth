@@ -2,7 +2,7 @@
 
 ## Current Rust core
 
-The repository contains a Rust workspace with the shared suika-core library. It includes TOTP/HOTP primitives, zeroizing account records and serialization, Argon2id key derivation, XChaCha20-Poly1305, versioned encrypted vaults, and the app-directory vault file store:
+The repository contains a Rust workspace with the shared suika-core library. It includes TOTP/HOTP primitives, zeroizing account records and serialization, Argon2id key derivation, XChaCha20-Poly1305, versioned encrypted vaults, and atomic app-directory vault file storage. The core CI validation currently passes 36 tests, formatting, strict Clippy, and dependency feature inspection:
 
     cargo fmt --all -- --check
     cargo test --workspace
