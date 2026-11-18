@@ -2,7 +2,7 @@
 
 This is the authoritative project roadmap. Update its checkboxes and the changelog as work is completed. Development follows this order unless a security or correctness issue requires reordering.
 
-Status: **Milestone 2 — cryptographic core in progress**
+Status: **Milestone 3 — encrypted vault container in progress**
 
 ## 1. Repository and architecture foundation
 
@@ -22,19 +22,20 @@ Status: **Milestone 2 — cryptographic core in progress**
 - [x] Add key redaction and zeroization wrappers.
 - [x] Implement HOTP and TOTP using HMAC-SHA-1, SHA-256, and SHA-512.
 - [x] Add RFC 4226 and RFC 6238 test vectors.
-- [ ] Run formatting, tests, and static analysis on CI and correct any findings.
+- [x] Run formatting, tests, and static analysis on CI and correct all findings.
 - [ ] Benchmark the production 128 MiB Argon2id profile on Linux and Android hardware.
-- [ ] Review the core API and cryptographic dependency feature tree.
+- [x] Review the core API and cryptographic dependency feature tree in CI.
 
 ## 3. Versioned encrypted vault container
 
-- [ ] Specify the binary vault header and version negotiation.
-- [ ] Authenticate version and KDF metadata as AEAD associated data.
-- [ ] Implement DEK wrapping and password change.
-- [ ] Implement bounded parsing and clear failure paths.
-- [ ] Implement account serialization without plaintext disk files.
+- [x] Specify the binary vault header and version negotiation.
+- [x] Authenticate version, KDF metadata, and wrapped-key metadata as AEAD associated data.
+- [x] Implement random DEK wrapping and password change.
+- [x] Implement bounded parsing and clear failure paths.
+- [ ] Implement versioned account serialization without plaintext disk files.
 - [ ] Implement atomic saves, file permissions, and crash-safe replacement.
-- [ ] Add corruption, truncation, wrong-password, and interrupted-write tests.
+- [x] Add corruption, truncation, wrong-password, and KDF-bound tests.
+- [ ] Add interrupted-write and crash-recovery tests.
 
 ## 4. Linux application
 

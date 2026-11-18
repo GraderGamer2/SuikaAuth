@@ -4,6 +4,6 @@ mod aead;
 mod error;
 mod key;
 
-pub use aead::{EncryptedPayload, decrypt, encrypt};
+pub use aead::{EncryptedPayload, NONCE_BYTES, TAG_BYTES, decrypt, encrypt};
 pub use error::CryptoError;
 pub use key::{KdfParams, SALT_BYTES, SecretKey, derive_wrapping_key, generate_salt};

@@ -76,6 +76,10 @@ jobs:
         if: steps.detect.outputs.core_ready == 'true'
         run: cargo clippy --workspace --all-targets -- -D warnings
 
+      - name: Audit dependency feature tree
+        if: steps.detect.outputs.core_ready == 'true'
+        run: cargo tree --workspace -e features
+
       - name: Install GTK4 build dependencies
         if: steps.detect.outputs.linux_app_ready == 'true'
         run: |

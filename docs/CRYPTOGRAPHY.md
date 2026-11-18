@@ -73,3 +73,11 @@ The OTP implementation must pass RFC 4226 and RFC 6238 test vectors, including t
 ## Cryptographic dependencies
 
 The implementation uses focused RustCrypto crates. Optional QR, URL parsing, serialization, GUI, and platform integration dependencies must not be pulled into the cryptographic core unless a concrete requirement justifies them.
+
+## Encrypted vault container
+
+The first versioned vault format is documented in VAULT_FORMAT.md. It uses a random 256-bit data-encryption key (DEK), a password-derived wrapping key (KEK), and two XChaCha20-Poly1305 authenticated payloads: one for the DEK and one for the account database.
+
+The password-wrapped DEK and encrypted account data use separate domain-separated associated-data strings. The account payload AAD binds the format prefix, the wrapped-DEK nonce and ciphertext, and the ciphertext length. Password changes generate a fresh salt and fresh nonces, then rewrap the same DEK and re-encrypt the payload.
+
+The format parser validates KDF cost bounds and file sizes before invoking Argon2id or allocating attacker-controlled payload buffers. Wrong-password and authenticated-content failures are reported through one generic unlock error.

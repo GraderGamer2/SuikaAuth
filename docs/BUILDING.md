@@ -2,7 +2,7 @@
 
 ## Current Rust core
 
-The repository contains a Rust workspace with the shared suika-core library:
+The repository contains a Rust workspace with the shared suika-core library. It includes TOTP/HOTP primitives, Argon2id key derivation, XChaCha20-Poly1305, and the versioned encrypted vault container:
 
     cargo fmt --all -- --check
     cargo test --workspace

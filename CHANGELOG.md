@@ -4,6 +4,11 @@ All notable project changes will be recorded here.
 
 ## Unreleased
 
+- Added the initial versioned encrypted vault container with Argon2id-wrapped DEK and XChaCha20-Poly1305 payload encryption.
+- Added bounded vault parsing, authenticated header metadata, generic unlock failures, and password-change support.
+- Added vault round-trip, tampering, wrong-password, truncation, KDF-bound, and payload-size tests.
+- Verified the shared Rust core with formatting, all tests, and strict Clippy in GitHub Actions.
+
 - Added the authoritative development roadmap.
 - Added the initial Rust workspace and shared suika-core crate.
 - Implemented bounded Argon2id key derivation using the selected 128 MiB / 3-iteration / 4-lane profile.
