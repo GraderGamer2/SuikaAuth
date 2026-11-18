@@ -132,7 +132,7 @@ impl VaultStore {
         };
         validate_file_metadata(&path_metadata)?;
 
-        let mut file = OpenOptions::new().read(true).open(&self.vault_path)?;
+        let file = OpenOptions::new().read(true).open(&self.vault_path)?;
         let opened_metadata = file.metadata()?;
         validate_file_metadata(&opened_metadata)?;
         ensure_same_file(&path_metadata, &opened_metadata)?;
