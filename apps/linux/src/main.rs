@@ -242,7 +242,8 @@ fn show_auth_page(
             return;
         }
         if password_bytes.len() > 1024 {
-            status_for_action.set_text("The password is longer than the supported 1024-byte limit.");
+            status_for_action
+                .set_text("The password is longer than the supported 1024-byte limit.");
             return;
         }
         if confirmation
@@ -350,19 +351,21 @@ fn run_auth_task(
     }
 
     let mut completed = Some(completed);
-    glib::source::timeout_add_local(Duration::from_millis(100), move || match receiver.try_recv() {
-        Ok(result) => {
-            if let Some(callback) = completed.take() {
-                callback(result);
+    glib::source::timeout_add_local(Duration::from_millis(100), move || {
+        match receiver.try_recv() {
+            Ok(result) => {
+                if let Some(callback) = completed.take() {
+                    callback(result);
+                }
+                ControlFlow::Break
             }
-            ControlFlow::Break
-        }
-        Err(TryRecvError::Empty) => ControlFlow::Continue,
-        Err(TryRecvError::Disconnected) => {
-            if let Some(callback) = completed.take() {
-                callback(Err("The vault worker stopped unexpectedly.".to_owned()));
+            Err(TryRecvError::Empty) => ControlFlow::Continue,
+            Err(TryRecvError::Disconnected) => {
+                if let Some(callback) = completed.take() {
+                    callback(Err("The vault worker stopped unexpectedly.".to_owned()));
+                }
+                ControlFlow::Break
             }
-            ControlFlow::Break
         }
     });
 }
@@ -389,12 +392,9 @@ fn authenticate(
 
             let database = AccountDatabase::new();
             let plaintext = database.encode().map_err(|error| error.to_string())?;
-            let (serialized, session) = Vault::create_session(
-                plaintext.as_slice(),
-                password,
-                KdfParams::PRODUCTION,
-            )
-            .map_err(|error: VaultError| error.to_string())?;
+            let (serialized, session) =
+                Vault::create_session(plaintext.as_slice(), password, KdfParams::PRODUCTION)
+                    .map_err(|error: VaultError| error.to_string())?;
             store
                 .save_new(&serialized)
                 .map_err(|error| error.to_string())?;
@@ -408,8 +408,8 @@ fn authenticate(
             let serialized = store.load().map_err(|error| error.to_string())?;
             let session =
                 Vault::unlock(&serialized, password).map_err(|error| error.to_string())?;
-            let database = AccountDatabase::decode(session.plaintext())
-                .map_err(|error| error.to_string())?;
+            let database =
+                AccountDatabase::decode(session.plaintext()).map_err(|error| error.to_string())?;
 
             Ok(AuthenticatedVault {
                 _session: session,
@@ -574,9 +574,7 @@ fn show_accounts_page(
     let unlocked_for_lock = unlocked.clone();
     lock.connect_clicked(move |_| {
         unlocked_for_lock.borrow_mut().take();
-        if let (Some(stack), Some(window)) =
-            (stack_for_lock.upgrade(), window_for_lock.upgrade())
-        {
+        if let (Some(stack), Some(window)) = (stack_for_lock.upgrade(), window_for_lock.upgrade()) {
             show_auth_page(
                 &stack,
                 &window,
