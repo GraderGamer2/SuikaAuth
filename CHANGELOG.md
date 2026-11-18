@@ -4,6 +4,11 @@ All notable project changes will be recorded here.
 
 ## Unreleased
 
+- Added HOTP enrollment to the Linux account form, including Base32 secret validation, algorithm/digit configuration, and an initial counter.
+- Added a HOTP “Copy & next” action that copies the current one-time code only after the incremented counter has been encrypted and persisted.
+- Added live local search across account issuer and label without requiring an index or external service.
+- Added mutable account lookup by stable ID in the shared account database for counter operations and subsequent account management.
+
 - Committed the Cargo-generated lockfile and changed CI to use --locked for tests, Clippy, dependency inspection, and release builds.
 - Verified the Linux frontend in CI with 42 passing tests, formatting, strict Clippy, dependency-feature inspection, and an optimized x86-64 release build.
 - Removed the old account/enrollment GTK pages from the window hierarchy when locking the vault.

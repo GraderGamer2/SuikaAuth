@@ -304,6 +304,11 @@ impl AccountDatabase {
         &self.accounts
     }
 
+    /// Mutably borrow one account by its stable identifier.
+    pub fn get_mut(&mut self, id: &[u8; 16]) -> Option<&mut Account> {
+        self.accounts.iter_mut().find(|account| &account.id == id)
+    }
+
     /// Insert an account, rejecting duplicate identifiers.
     pub fn insert(&mut self, account: Account) -> Result<(), AccountError> {
         account.validate()?;

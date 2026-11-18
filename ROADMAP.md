@@ -45,7 +45,8 @@ Status: **Milestone 4 — Linux native frontend**
 - [x] Add first-run vault creation and password unlocking.
 - [x] Add account list, code display, countdown, and click-to-copy.
 - [x] Add manual TOTP account enrollment with Base32 validation and encrypted persistence.
-- [ ] Add HOTP enrollment, account editing/removal, and search.
+- [x] Add HOTP enrollment and account search.
+- [ ] Add account editing and removal.
 - [ ] Add lock-on-inactivity and secure process shutdown.
 - [x] Build an optimized x86-64 release executable and document system runtime dependencies.
 
@@ -62,7 +63,7 @@ Status: **Milestone 4 — Linux native frontend**
 ## 6. Enrollment and migration
 
 - [x] Add manual TOTP enrollment.
-- [ ] Add manual HOTP enrollment.
+- [x] Add manual HOTP enrollment.
 - [ ] Parse and validate otpauth URIs.
 - [ ] Add camera QR scanning on Android.
 - [ ] Add QR image import on Linux.

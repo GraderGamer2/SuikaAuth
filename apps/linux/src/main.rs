@@ -453,7 +453,7 @@ fn show_add_account_page(
     title.set_xalign(0.0);
 
     let description = Label::new(Some(
-        "Enter the account details and its Base32 TOTP secret. The secret is encrypted before it is written to disk.",
+        "Enter the account details and Base32 secret. Choose TOTP for time-based codes or HOTP for counter-based codes. The secret is encrypted before it is saved.",
     ));
     description.set_wrap(true);
     description.set_xalign(0.0);
@@ -470,6 +470,10 @@ fn show_add_account_page(
     secret.set_input_purpose(gtk::InputPurpose::Password);
     secret.set_max_length(208);
 
+    let mode = labeled_entry(&page, "OTP mode", "TOTP or HOTP");
+    mode.set_text("TOTP");
+    mode.set_max_length(4);
+
     let algorithm = labeled_entry(&page, "HMAC algorithm", "SHA1, SHA256, or SHA512");
     algorithm.set_text("SHA1");
     algorithm.set_max_length(6);
@@ -478,9 +482,9 @@ fn show_add_account_page(
     digits.set_text("6");
     digits.set_max_length(1);
 
-    let period = labeled_entry(&page, "Time period (seconds)", "30");
-    period.set_text("30");
-    period.set_max_length(5);
+    let parameter = labeled_entry(&page, "TOTP period / HOTP counter", "30 (TOTP) or 0 (HOTP)");
+    parameter.set_text("30");
+    parameter.set_max_length(20);
 
     let status = Label::new(None);
     status.set_wrap(true);
@@ -523,7 +527,8 @@ fn show_add_account_page(
     let secret_for_save = secret.clone();
     let algorithm_for_save = algorithm.clone();
     let digits_for_save = digits.clone();
-    let period_for_save = period.clone();
+    let mode_for_save = mode.clone();
+    let parameter_for_save = parameter.clone();
     let status_for_save = status.clone();
     let save_for_save = save.clone();
 
@@ -549,13 +554,22 @@ fn show_add_account_page(
                 return;
             }
         };
-        let period_value = match period_for_save.text().trim().parse::<u64>() {
-            Ok(value @ 1..=86_400) => value,
-            _ => {
-                status_for_save.set_text("TOTP period must be between 1 and 86400 seconds.");
+        let mode_value = mode_for_save.text().trim().to_ascii_uppercase();
+        if mode_value != "TOTP" && mode_value != "HOTP" {
+            status_for_save.set_text("Choose TOTP or HOTP as the OTP mode.");
+            return;
+        }
+        let parameter_value = match parameter_for_save.text().trim().parse::<u64>() {
+            Ok(value) => value,
+            Err(_) => {
+                status_for_save.set_text("Enter a valid TOTP period or HOTP counter.");
                 return;
             }
         };
+        if mode_value == "TOTP" && !(1..=86_400).contains(&parameter_value) {
+            status_for_save.set_text("TOTP period must be between 1 and 86400 seconds.");
+            return;
+        }
         if label_value.is_empty() {
             status_for_save.set_text("Enter an account name.");
             return;
@@ -573,14 +587,26 @@ fn show_add_account_page(
             }
         };
 
-        let account = match Account::new_totp(
-            issuer_value,
-            label_value,
-            secret_bytes,
-            algorithm_value,
-            digits_value,
-            period_value,
-        ) {
+        let account_result = if mode_value == "TOTP" {
+            Account::new_totp(
+                issuer_value,
+                label_value,
+                secret_bytes,
+                algorithm_value,
+                digits_value,
+                parameter_value,
+            )
+        } else {
+            Account::new_hotp(
+                issuer_value,
+                label_value,
+                secret_bytes,
+                algorithm_value,
+                digits_value,
+                parameter_value,
+            )
+        };
+        let account = match account_result {
             Ok(account) => account,
             Err(error) => {
                 status_for_save.set_text(&error.to_string());
@@ -708,6 +734,34 @@ fn decode_base32(input: &str) -> Result<Zeroizing<Vec<u8>>, String> {
     Ok(output)
 }
 
+fn advance_hotp_and_persist(
+    unlocked: &Rc<RefCell<Option<AuthenticatedVault>>>,
+    directory: &Path,
+    id: &[u8; 16],
+) -> Result<(String, String, u64), String> {
+    let mut guard = unlocked.borrow_mut();
+    let vault = guard
+        .as_mut()
+        .ok_or_else(|| "The vault is locked.".to_owned())?;
+    let account = vault
+        .accounts
+        .get_mut(id)
+        .ok_or_else(|| "The account no longer exists.".to_owned())?;
+
+    let used_code = account
+        .generate_code(0)
+        .map_err(|error| error.to_string())?;
+    let next_counter = account
+        .advance_hotp_counter()
+        .map_err(|error| error.to_string())?;
+    let next_code = account
+        .generate_code(0)
+        .map_err(|error| error.to_string())?;
+
+    persist_vault(vault, directory)?;
+    Ok((used_code, next_code, next_counter))
+}
+
 struct AccountRowWidgets {
     id: [u8; 16],
     code: Label,
@@ -765,11 +819,17 @@ fn show_accounts_page(
     summary.set_xalign(0.0);
     page.append(&summary);
 
+    let search = Entry::new();
+    search.set_placeholder_text(Some("Search issuer or account…"));
+    search.set_hexpand(true);
+    page.append(&search);
+
     let list = ListBox::new();
     list.set_selection_mode(gtk::SelectionMode::None);
     list.add_css_class("boxed-list");
 
     let mut row_widgets = Vec::new();
+    let mut searchable_rows: Vec<(ListBoxRow, String)> = Vec::new();
     if let Some(vault) = unlocked.borrow().as_ref() {
         if vault.accounts.is_empty() {
             let empty = GtkBox::new(Orientation::Vertical, 8);
@@ -834,25 +894,62 @@ fn show_accounts_page(
                 identity.append(&code);
                 identity.append(&countdown);
 
-                let copy = Button::with_label("Copy");
-                let code_for_copy = code.clone();
-                copy.connect_clicked(move |_| {
-                    if let Some(display) = gtk::gdk::Display::default() {
-                        let value = code_for_copy.text().to_string();
-                        if value != "------" {
-                            display.clipboard().set_text(&value);
-                        }
-                    }
-                });
-
                 row_content.append(&identity);
-                row_content.append(&copy);
+
+                match account.mode() {
+                    AccountMode::Totp { .. } => {
+                        let copy = Button::with_label("Copy");
+                        let code_for_copy = code.clone();
+                        copy.connect_clicked(move |_| {
+                            if let Some(display) = gtk::gdk::Display::default() {
+                                let value = code_for_copy.text().to_string();
+                                if value != "------" {
+                                    display.clipboard().set_text(&value);
+                                }
+                            }
+                        });
+                        row_content.append(&copy);
+                    }
+                    AccountMode::Hotp { .. } => {
+                        let advance = Button::with_label("Copy & next");
+                        let id = *account.id();
+                        let unlocked_for_advance = unlocked.clone();
+                        let directory_for_advance = directory.clone();
+                        let code_for_advance = code.clone();
+                        let countdown_for_advance = countdown.clone();
+                        advance.connect_clicked(move |_| {
+                            match advance_hotp_and_persist(
+                                &unlocked_for_advance,
+                                &directory_for_advance,
+                                &id,
+                            ) {
+                                Ok((used_code, next_code, next_counter)) => {
+                                    code_for_advance.set_text(&next_code);
+                                    countdown_for_advance
+                                        .set_text(&format!("Counter {next_counter}"));
+                                    if let Some(display) = gtk::gdk::Display::default() {
+                                        display.clipboard().set_text(&used_code);
+                                    }
+                                }
+                                Err(message) => {
+                                    countdown_for_advance
+                                        .set_text(&format!("Counter not advanced: {message}"));
+                                }
+                            }
+                        });
+                        row_content.append(&advance);
+                    }
+                }
 
                 let row = ListBoxRow::new();
                 row.set_child(Some(&row_content));
                 row.set_activatable(false);
                 row.set_selectable(false);
                 list.append(&row);
+                searchable_rows.push((
+                    row.clone(),
+                    format!("{} {}", account.issuer(), account.label()).to_lowercase(),
+                ));
 
                 row_widgets.push(AccountRowWidgets {
                     id: *account.id(),
@@ -862,6 +959,14 @@ fn show_accounts_page(
             }
         }
     }
+
+    let search_rows = searchable_rows;
+    search.connect_changed(move |entry| {
+        let query = entry.text().trim().to_lowercase();
+        for (row, searchable_text) in &search_rows {
+            row.set_visible(query.is_empty() || searchable_text.contains(&query));
+        }
+    });
 
     let scrolled = ScrolledWindow::new();
     scrolled.set_policy(gtk::PolicyType::Never, gtk::PolicyType::Automatic);

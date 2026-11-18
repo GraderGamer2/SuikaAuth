@@ -34,6 +34,6 @@ This is the initial functional shell. It supports first-run setup, unlock, a liv
 
 Account records are encoded into a zeroizing buffer, installed into the unlocked vault session, encrypted using the session-held wrapping key, and written through the atomic vault store. The master password is not retained by the GTK frontend. The wrapping key remains only in the core's unlocked session and is zeroized when that session is dropped.
 
-The manual TOTP form accepts SHA1, SHA256, or SHA512; 6, 7, or 8 digits; and a period from 1 to 86400 seconds. Base32 whitespace and hyphens are ignored, lowercase input is accepted, and the decoded secret must be at least 16 bytes and no more than 128 bytes.
+The manual enrollment form accepts TOTP or HOTP, SHA1/SHA256/SHA512, and 6/7/8 digits. TOTP periods range from 1 to 86400 seconds; HOTP accepts a user-supplied unsigned 64-bit initial counter. Base32 whitespace and hyphens are ignored, lowercase input is accepted, and the decoded secret must be at least 16 bytes and no more than 128 bytes.
 
 No password is stored in application settings or command-line arguments. The master password entry is cleared before the worker starts; the worker receives a zeroizing byte buffer. The application does not log passwords, OTP secrets, or generated codes.
