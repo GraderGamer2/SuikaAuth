@@ -32,7 +32,7 @@ Status: **Milestone 3 — encrypted vault container in progress**
 - [x] Authenticate version, KDF metadata, and wrapped-key metadata as AEAD associated data.
 - [x] Implement random DEK wrapping and password change.
 - [x] Implement bounded parsing and clear failure paths.
-- [ ] Implement versioned account serialization without plaintext disk files.
+- [x] Implement versioned account serialization without plaintext disk files, returning zeroizing buffers.
 - [ ] Implement atomic saves, file permissions, and crash-safe replacement.
 - [x] Add corruption, truncation, wrong-password, and KDF-bound tests.
 - [ ] Add interrupted-write and crash-recovery tests.

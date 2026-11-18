@@ -61,3 +61,5 @@ The binary container API does not perform filesystem writes. Platform frontends 
 ## Compatibility
 
 Version 1 has no migration fields. Future format changes must use a new version and retain explicit parsing rules. Do not silently reinterpret or downgrade unsupported vaults.
+
+The encrypted payload is currently a versioned account database defined in ACCOUNT_DATABASE.md. The account database format is encoded into a zeroizing memory buffer before it is passed to the vault. It must never be written to disk independently of the encrypted vault.

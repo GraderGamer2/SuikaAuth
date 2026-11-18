@@ -21,7 +21,7 @@ All listed cryptographic implementations are pure Rust. The direct versions are 
 - Disable default features when they are not required.
 - Do not enable Argon2's optional parallel/Rayon feature in the initial core.
 - Do not enable password-hash PHC string support when only raw key derivation is needed.
-- Do not enable QR generation, URL parsing, image processing, HTTP, or serialization in the security core.
+- Do not enable QR generation, URL parsing, image processing, HTTP, or general-purpose serialization frameworks in the security core. Account records use a small, explicitly versioned binary codec.
 - CI runs cargo tree --workspace -e features so the complete enabled dependency feature tree is visible in each successful Rust-core build. Review this output whenever dependencies or features change.
 
 ## Rejected by default
