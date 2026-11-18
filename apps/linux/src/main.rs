@@ -120,12 +120,7 @@ fn build_application(application: &Application) {
 
     let directory_for_timeout = directory.clone();
     show_auth_page(&stack, &window, directory, mode, unlocked.clone());
-    start_inactivity_monitor(
-        &window,
-        &stack,
-        directory_for_timeout,
-        unlocked,
-    );
+    start_inactivity_monitor(&window, &stack, directory_for_timeout, unlocked);
     window.present();
 }
 
@@ -213,18 +208,11 @@ fn start_inactivity_monitor(
             return ControlFlow::Break;
         }
 
-        let should_lock = unlocked.borrow().is_some()
-            && inactivity_duration() >= INACTIVITY_LOCK_TIMEOUT;
+        let should_lock =
+            unlocked.borrow().is_some() && inactivity_duration() >= INACTIVITY_LOCK_TIMEOUT;
         if should_lock {
-            if let (Some(stack), Some(window)) =
-                (stack_weak.upgrade(), window_weak.upgrade())
-            {
-                lock_vault_to_auth(
-                    &stack,
-                    &window,
-                    directory.clone(),
-                    unlocked.clone(),
-                );
+            if let (Some(stack), Some(window)) = (stack_weak.upgrade(), window_weak.upgrade()) {
+                lock_vault_to_auth(&stack, &window, directory.clone(), unlocked.clone());
             } else {
                 unlocked.borrow_mut().take();
                 return ControlFlow::Break;
