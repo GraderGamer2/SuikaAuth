@@ -296,8 +296,7 @@ fn validate_vault_bytes(bytes: &[u8]) -> Result<(), StorageError> {
         return Err(StorageError::InvalidVaultFile);
     }
 
-    crate::vault::Vault::validate_serialized(bytes)
-        .map_err(|_| StorageError::InvalidVaultFile)
+    crate::vault::Vault::validate_serialized(bytes).map_err(|_| StorageError::InvalidVaultFile)
 }
 
 #[cfg(unix)]
