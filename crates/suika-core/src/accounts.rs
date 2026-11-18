@@ -401,7 +401,7 @@ impl AccountDatabase {
         for _ in 0..count {
             let record_length =
                 usize::try_from(cursor.u32()?).map_err(|_| AccountError::InvalidDatabase)?;
-            if record_length < RECORD_FIXED_BYTES || record_length > MAX_DATABASE_BYTES {
+            if !(RECORD_FIXED_BYTES..=MAX_DATABASE_BYTES).contains(&record_length) {
                 return Err(AccountError::InvalidDatabase);
             }
 
