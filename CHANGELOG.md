@@ -4,6 +4,10 @@ All notable project changes will be recorded here.
 
 ## Unreleased
 
+- Committed the Cargo-generated lockfile and changed CI to use --locked for tests, Clippy, dependency inspection, and release builds.
+- Verified the Linux frontend in CI with 42 passing tests, formatting, strict Clippy, dependency-feature inspection, and an optimized x86-64 release build.
+- Removed the old account/enrollment GTK pages from the window hierarchy when locking the vault.
+
 - Retained the password-derived wrapping key only inside the zeroizing unlocked vault session, enabling routine saves without retaining or re-requesting the master password.
 - Added session re-sealing with fresh AEAD nonces and a test proving persisted changes still unlock with the original master password.
 - Added manual TOTP enrollment to the GTK frontend, including Base32 decoding, input validation, algorithm/digits/period configuration, and encrypted vault persistence.

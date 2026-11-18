@@ -47,7 +47,7 @@ Status: **Milestone 4 — Linux native frontend**
 - [x] Add manual TOTP account enrollment with Base32 validation and encrypted persistence.
 - [ ] Add HOTP enrollment, account editing/removal, and search.
 - [ ] Add lock-on-inactivity and secure process shutdown.
-- [ ] Build an optimized x86-64 release executable and document system runtime dependencies.
+- [x] Build an optimized x86-64 release executable and document system runtime dependencies.
 
 ## 5. Android application
 
@@ -81,7 +81,7 @@ Status: **Milestone 4 — Linux native frontend**
 
 - [ ] Review threat model and cryptographic implementation.
 - [ ] Audit direct and transitive dependencies.
-- [ ] Commit and review Cargo.lock.
+- [x] Commit the Cargo-generated Cargo.lock and verify locked CI builds.
 - [x] Test file replacement and recovery behavior under interruption.
 - [ ] Perform abrupt process-kill and power-loss durability tests on target Linux and Android filesystems.
 - [ ] Measure idle RAM, unlocked RAM, binary/APK size, and vault unlock latency.

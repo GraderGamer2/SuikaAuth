@@ -91,19 +91,19 @@ jobs:
 
       - name: Run Rust workspace tests
         if: steps.detect.outputs.core_ready == 'true'
-        run: cargo test --workspace --all-targets
+        run: cargo test --locked --workspace --all-targets
 
       - name: Run Clippy
         if: steps.detect.outputs.core_ready == 'true'
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        run: cargo clippy --locked --workspace --all-targets -- -D warnings
 
       - name: Audit dependency feature tree
         if: steps.detect.outputs.core_ready == 'true'
-        run: cargo tree --workspace -e features
+        run: cargo tree --locked --workspace -e features
 
       - name: Build optimized Linux executable
         if: steps.detect.outputs.linux_app_ready == 'true'
-        run: cargo build --release --package suika-authenticator-linux --bin suika-authenticator
+        run: cargo build --locked --release --package suika-authenticator-linux --bin suika-authenticator
 
       - name: Prepare Linux download
         if: steps.detect.outputs.linux_app_ready == 'true'
