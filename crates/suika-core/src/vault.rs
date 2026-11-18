@@ -115,9 +115,9 @@ impl Vault {
             return Err(VaultError::UnlockFailed);
         }
 
-        let mut data_key_bytes = [0_u8; 32];
+        let mut data_key_bytes = Zeroizing::new([0_u8; 32]);
         data_key_bytes.copy_from_slice(&decrypted_key);
-        let data_key = SecretKey::from_bytes(data_key_bytes);
+        let data_key = SecretKey::from_bytes(*data_key_bytes);
 
         let payload_aad = build_payload_aad(
             &locked.prefix,

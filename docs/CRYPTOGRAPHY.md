@@ -18,7 +18,7 @@ Initial production parameters:
 
 The first implementation deliberately does not enable Argon2's optional Rayon parallel feature. The lane parameter remains four, but the core crate avoids adding a separate parallel runtime. Unlock latency must be measured on real Linux and Android hardware before release.
 
-KDF parameters are validated and bounded before invoking Argon2. The current accepted range is 64–256 MiB, 1–10 iterations, and 1–4 lanes. The serialized vault format must store the parameters needed to reproduce the key derivation. Never trust unvalidated KDF values from a file.
+KDF parameters are validated and bounded before invoking Argon2. The current accepted range is 64–128 MiB, 1–3 iterations, and 1–4 lanes. The upper bounds prevent an unauthenticated vault header from forcing excessive memory allocation or derivation time before its metadata can be authenticated. The serialized vault format must store the parameters needed to reproduce the key derivation. Never trust unvalidated KDF values from a file.
 
 Use the raw key-derivation API (hash_password_into), not password-hash string formatting, because the output is a wrapping key rather than a password-verifier string.
 

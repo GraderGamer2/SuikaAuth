@@ -33,7 +33,7 @@ The fixed header length is 158 bytes. The maximum plaintext payload is 16 MiB; t
 4. Encrypt the DEK with XChaCha20-Poly1305 under the KEK.
 5. Encrypt the serialized account payload with XChaCha20-Poly1305 under the DEK.
 
-The initial production profile is 128 MiB, three iterations, and four lanes. The parser accepts only bounded KDF parameter values and rejects out-of-range fields before invoking Argon2id.
+The initial production profile is 128 MiB, three iterations, and four lanes. The parser accepts only bounded KDF parameter values (64–128 MiB, 1–3 iterations, and 1–4 lanes) and rejects out-of-range fields before invoking Argon2id. These upper bounds prevent an unauthenticated header from requesting more than the application's selected production cost.
 
 ## Associated data
 

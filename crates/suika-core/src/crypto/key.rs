@@ -19,8 +19,8 @@ pub const PRODUCTION_ITERATIONS: u32 = 3;
 pub const PRODUCTION_LANES: u32 = 4;
 
 const MIN_MEMORY_KIB: u32 = 64 * 1024;
-const MAX_MEMORY_KIB: u32 = 256 * 1024;
-const MAX_ITERATIONS: u32 = 10;
+const MAX_MEMORY_KIB: u32 = 128 * 1024;
+const MAX_ITERATIONS: u32 = 3;
 const MAX_LANES: u32 = 4;
 const MAX_PASSWORD_BYTES: usize = 1024;
 
@@ -175,7 +175,8 @@ mod tests {
     #[test]
     fn kdf_rejects_out_of_bounds_parameters() {
         assert!(KdfParams::new(32 * 1024, 3, 4).is_err());
-        assert!(KdfParams::new(512 * 1024, 3, 4).is_err());
+        assert!(KdfParams::new(256 * 1024, 3, 4).is_err());
+        assert!(KdfParams::new(128 * 1024, 4, 4).is_err());
         assert!(KdfParams::new(128 * 1024, 0, 4).is_err());
         assert!(KdfParams::new(128 * 1024, 3, 8).is_err());
     }

@@ -7,6 +7,8 @@ All notable project changes will be recorded here.
 - Added the initial versioned encrypted vault container with Argon2id-wrapped DEK and XChaCha20-Poly1305 payload encryption.
 - Added bounded vault parsing, authenticated header metadata, generic unlock failures, and password-change support.
 - Added vault round-trip, tampering, wrong-password, truncation, KDF-bound, and payload-size tests.
+- Capped vault-header Argon2id parameters at 128 MiB and three passes to limit pre-authentication resource consumption.
+- Wrapped the temporary decrypted DEK copy in zeroizing memory.
 - Verified the shared Rust core with formatting, all tests, and strict Clippy in GitHub Actions.
 
 - Added the authoritative development roadmap.
