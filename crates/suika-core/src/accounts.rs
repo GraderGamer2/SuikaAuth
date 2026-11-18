@@ -54,8 +54,12 @@ impl core::fmt::Display for AccountError {
             Self::UnsupportedVersion => f.write_str("account database version is not supported"),
             Self::DatabaseTooLarge => f.write_str("account database exceeds the supported size"),
             Self::TooManyAccounts => f.write_str("account count exceeds the supported limit"),
-            Self::DuplicateAccountId => f.write_str("account database contains a duplicate identifier"),
-            Self::RandomnessUnavailable => f.write_str("operating-system randomness is unavailable"),
+            Self::DuplicateAccountId => {
+                f.write_str("account database contains a duplicate identifier")
+            }
+            Self::RandomnessUnavailable => {
+                f.write_str("operating-system randomness is unavailable")
+            }
             Self::CounterExhausted => f.write_str("HOTP counter cannot be incremented"),
             Self::Otp(error) => write!(f, "OTP generation failed: {error}"),
         }
@@ -170,7 +174,10 @@ impl Account {
 
     /// Set or clear the account group.
     pub fn set_group(&mut self, group: Option<String>) -> Result<(), AccountError> {
-        if group.as_ref().is_some_and(|value| value.len() > MAX_GROUP_BYTES) {
+        if group
+            .as_ref()
+            .is_some_and(|value| value.len() > MAX_GROUP_BYTES)
+        {
             return Err(AccountError::InvalidAccount);
         }
         self.group = group.filter(|value| !value.is_empty());
@@ -231,7 +238,9 @@ impl Account {
     pub fn advance_hotp_counter(&mut self) -> Result<u64, AccountError> {
         match &mut self.mode {
             AccountMode::Hotp { counter } => {
-                *counter = counter.checked_add(1).ok_or(AccountError::CounterExhausted)?;
+                *counter = counter
+                    .checked_add(1)
+                    .ok_or(AccountError::CounterExhausted)?;
                 Ok(*counter)
             }
             AccountMode::Totp { .. } => Err(AccountError::InvalidAccount),
@@ -242,9 +251,10 @@ impl Account {
         if self.label.is_empty()
             || self.label.len() > MAX_LABEL_BYTES
             || self.issuer.len() > MAX_ISSUER_BYTES
-            || self.group.as_ref().is_some_and(|value| {
-                value.is_empty() || value.len() > MAX_GROUP_BYTES
-            })
+            || self
+                .group
+                .as_ref()
+                .is_some_and(|value| value.is_empty() || value.len() > MAX_GROUP_BYTES)
             || self.secret.is_empty()
             || self.secret.len() > MAX_SECRET_BYTES
             || !(6..=8).contains(&self.digits)
@@ -300,7 +310,11 @@ impl AccountDatabase {
         if self.accounts.len() >= MAX_ACCOUNTS {
             return Err(AccountError::TooManyAccounts);
         }
-        if self.accounts.iter().any(|existing| existing.id == account.id) {
+        if self
+            .accounts
+            .iter()
+            .any(|existing| existing.id == account.id)
+        {
             return Err(AccountError::DuplicateAccountId);
         }
         self.accounts.push(account);
@@ -342,8 +356,8 @@ impl AccountDatabase {
             return Err(AccountError::DatabaseTooLarge);
         }
 
-        let count = u32::try_from(self.accounts.len())
-            .map_err(|_| AccountError::TooManyAccounts)?;
+        let count =
+            u32::try_from(self.accounts.len()).map_err(|_| AccountError::TooManyAccounts)?;
         let mut output = Zeroizing::new(Vec::with_capacity(total_len));
         output.extend_from_slice(DATABASE_MAGIC);
         output.extend_from_slice(&DATABASE_VERSION.to_be_bytes());
@@ -385,8 +399,8 @@ impl AccountDatabase {
         let mut seen = HashSet::with_capacity(count);
 
         for _ in 0..count {
-            let record_length = usize::try_from(cursor.u32()?)
-                .map_err(|_| AccountError::InvalidDatabase)?;
+            let record_length =
+                usize::try_from(cursor.u32()?).map_err(|_| AccountError::InvalidDatabase)?;
             if record_length < RECORD_FIXED_BYTES || record_length > MAX_DATABASE_BYTES {
                 return Err(AccountError::InvalidDatabase);
             }
@@ -428,18 +442,16 @@ fn record_length(account: &Account) -> Result<usize, AccountError> {
         .ok_or(AccountError::DatabaseTooLarge)
 }
 
-fn encode_record(
-    account: &Account,
-    output: &mut Zeroizing<Vec<u8>>,
-) -> Result<(), AccountError> {
+fn encode_record(account: &Account, output: &mut Zeroizing<Vec<u8>>) -> Result<(), AccountError> {
     let record_len = record_length(account)?;
-    let record_len_u32 =
-        u32::try_from(record_len).map_err(|_| AccountError::DatabaseTooLarge)?;
-    let issuer_len = u16::try_from(account.issuer.len()).map_err(|_| AccountError::InvalidAccount)?;
+    let record_len_u32 = u32::try_from(record_len).map_err(|_| AccountError::DatabaseTooLarge)?;
+    let issuer_len =
+        u16::try_from(account.issuer.len()).map_err(|_| AccountError::InvalidAccount)?;
     let label_len = u16::try_from(account.label.len()).map_err(|_| AccountError::InvalidAccount)?;
     let group_bytes = account.group.as_deref().unwrap_or("").as_bytes();
     let group_len = u16::try_from(group_bytes.len()).map_err(|_| AccountError::InvalidAccount)?;
-    let secret_len = u16::try_from(account.secret.len()).map_err(|_| AccountError::InvalidAccount)?;
+    let secret_len =
+        u16::try_from(account.secret.len()).map_err(|_| AccountError::InvalidAccount)?;
 
     let (mode, parameter) = match account.mode {
         AccountMode::Totp { period_seconds } => (1_u8, period_seconds),
