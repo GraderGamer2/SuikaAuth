@@ -1,0 +1,37 @@
+# Rust
+/target/
+**/target/
+
+# Android / Gradle
+.gradle/
+**/.gradle/
+**/build/
+local.properties
+captures/
+
+# Generated Android packages and native libraries
+*.apk
+*.aab
+*.dex
+*.class
+
+# Native build outputs
+*.so
+*.dylib
+*.dll
+
+# IDE and editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS metadata
+.DS_Store
+Thumbs.db
+
+# Local environment and sensitive material
+.env
+.env.*
+*.keystore
+*.jks
