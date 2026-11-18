@@ -244,7 +244,7 @@ impl LockedVault {
         let payload_len_bytes = take::<4>(serialized, &mut offset)?;
         let payload_len = u32::from_be_bytes(payload_len_bytes) as usize;
 
-        if payload_len < TAG_BYTES || payload_len > MAX_PLAINTEXT_BYTES + TAG_BYTES {
+        if !(TAG_BYTES..=(MAX_PLAINTEXT_BYTES + TAG_BYTES)).contains(&payload_len) {
             return Err(VaultError::InvalidContainer);
         }
 
