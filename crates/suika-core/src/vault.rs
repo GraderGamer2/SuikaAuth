@@ -108,11 +108,16 @@ impl Vault {
     ) -> Result<(Vec<u8>, VaultSession), VaultError> {
         validate_payload_size(plaintext.len())?;
         let data_key = SecretKey::generate()?;
+        let salt = generate_salt()?;
+        let wrapping_key = derive_wrapping_key(password, &salt, params)?;
         let session = VaultSession {
             data_key,
+            wrapping_key,
+            salt,
+            params,
             plaintext: Zeroizing::new(plaintext.to_vec()),
         };
-        let serialized = session.seal(password, params)?;
+        let serialized = session.seal_current()?;
         Ok((serialized, session))
     }
 
@@ -157,6 +162,9 @@ impl Vault {
 
         Ok(VaultSession {
             data_key,
+            wrapping_key,
+            salt: locked.salt,
+            params: locked.params,
             plaintext,
         })
     }
@@ -168,6 +176,11 @@ impl Vault {
 /// supported. This type intentionally does not implement Clone or Debug.
 pub struct VaultSession {
     data_key: SecretKey,
+    // Retained only while unlocked so routine vault saves do not need the
+    // master password again. SecretKey zeroizes this value on drop.
+    wrapping_key: SecretKey,
+    salt: [u8; SALT_BYTES],
+    params: KdfParams,
     plaintext: Zeroizing<Vec<u8>>,
 }
 
@@ -185,21 +198,37 @@ impl VaultSession {
         Ok(())
     }
 
-    /// Encrypt the current session into a new vault file.
+    /// Re-encrypt the current session for routine saves.
     ///
-    /// A fresh salt and fresh AEAD nonces are generated. Calling this with a
-    /// new password changes the master password and rewraps the same random
-    /// data-encryption key. The payload is also re-encrypted with fresh nonce
-    /// material and authenticated header data.
+    /// The existing wrapping key and KDF salt remain in memory for this
+    /// unlocked session. Every save still creates fresh random AEAD nonces.
+    /// The retained wrapping key is zeroized when the session is dropped.
+    pub fn seal_current(&self) -> Result<Vec<u8>, VaultError> {
+        self.seal_with_material(&self.wrapping_key, &self.salt, self.params)
+    }
+
+    /// Encrypt the current session under a new master password.
+    ///
+    /// A fresh salt and wrapping key are derived for the supplied password.
+    /// This returns a new serialized vault; it does not mutate this in-memory
+    /// session's existing unlock credentials.
     pub fn seal(&self, password: &[u8], params: KdfParams) -> Result<Vec<u8>, VaultError> {
+        let salt = generate_salt()?;
+        let wrapping_key = derive_wrapping_key(password, &salt, params)?;
+        self.seal_with_material(&wrapping_key, &salt, params)
+    }
+
+    fn seal_with_material(
+        &self,
+        wrapping_key: &SecretKey,
+        salt: &[u8; SALT_BYTES],
+        params: KdfParams,
+    ) -> Result<Vec<u8>, VaultError> {
         validate_payload_size(self.plaintext.len())?;
 
-        let salt = generate_salt()?;
-        let prefix = build_prefix(params, &salt);
-        let wrapping_key = derive_wrapping_key(password, &salt, params)?;
-
+        let prefix = build_prefix(params, salt);
         let wrapped_key_aad = build_wrap_aad(&prefix);
-        let wrapped_key = encrypt(&wrapping_key, self.data_key.expose(), &wrapped_key_aad)?;
+        let wrapped_key = encrypt(wrapping_key, self.data_key.expose(), &wrapped_key_aad)?;
 
         let encrypted_payload_len = self
             .plaintext
@@ -415,6 +444,26 @@ mod tests {
         assert_eq!(created_session.plaintext(), plaintext);
         let reopened = Vault::unlock(&serialized, password).expect("created vault should unlock");
         assert_eq!(reopened.plaintext(), plaintext);
+    }
+
+    #[test]
+    fn unlocked_session_can_save_changes_without_reasking_for_password() {
+        let password = b"routine save password";
+        let (original, mut session) =
+            Vault::create_session(b"first database", password, test_params())
+                .expect("vault and session should be created");
+
+        session
+            .replace_plaintext(Zeroizing::new(b"updated database".to_vec()))
+            .expect("session plaintext should update");
+        let saved = session
+            .seal_current()
+            .expect("unlocked session should seal without password input");
+
+        assert_ne!(saved, original);
+        let reopened =
+            Vault::unlock(&saved, password).expect("saved vault should unlock with original password");
+        assert_eq!(reopened.plaintext(), b"updated database");
     }
 
     #[test]
