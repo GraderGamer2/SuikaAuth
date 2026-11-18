@@ -671,7 +671,7 @@ fn decode_base32(input: &str) -> Result<Zeroizing<Vec<u8>>, String> {
         7 => 1,
         _ => return Err("The Base32 secret has an invalid length.".to_owned()),
     };
-    if !padding.is_empty() && (compact.len() % 8 != 0 || padding.len() != expected_padding) {
+    if !padding.is_empty() && (!compact.len().is_multiple_of(8) || padding.len() != expected_padding) {
         return Err("The Base32 secret has invalid padding.".to_owned());
     }
 
@@ -930,6 +930,13 @@ fn show_accounts_page(
     replace_page(stack, "accounts", &page);
 }
 
+fn unix_time() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -981,11 +988,4 @@ mod tests {
         assert!(decode_base32("MZ======").is_err());
         assert!(decode_base32("MZX").is_err());
     }
-}
-
-fn unix_time() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs()
 }
