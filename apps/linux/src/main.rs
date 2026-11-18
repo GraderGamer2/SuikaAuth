@@ -1077,37 +1077,41 @@ fn confirm_remove_account(
     let window_weak = window.downgrade();
     let directory_for_remove = directory.clone();
     let unlocked_for_remove = unlocked.clone();
-    alert.choose(Some(window), None::<&gtk::gio::Cancellable>, move |response| {
-        if !matches!(response, Ok(1)) {
-            return;
-        }
+    alert.choose(
+        Some(window),
+        None::<&gtk::gio::Cancellable>,
+        move |response| {
+            if !matches!(response, Ok(1)) {
+                return;
+            }
 
-        let result = {
-            let mut guard = unlocked_for_remove.borrow_mut();
-            match guard.as_mut() {
-                Some(vault) => {
-                    if vault.accounts.remove(&id) {
-                        persist_vault(vault, &directory_for_remove)
-                    } else {
-                        Err("The account no longer exists.".to_owned())
+            let result = {
+                let mut guard = unlocked_for_remove.borrow_mut();
+                match guard.as_mut() {
+                    Some(vault) => {
+                        if vault.accounts.remove(&id) {
+                            persist_vault(vault, &directory_for_remove)
+                        } else {
+                            Err("The account no longer exists.".to_owned())
+                        }
                     }
+                    None => Err("The vault is locked.".to_owned()),
                 }
-                None => Err("The vault is locked.".to_owned()),
-            }
-        };
+            };
 
-        if let (Some(stack), Some(window)) = (stack_weak.upgrade(), window_weak.upgrade()) {
-            show_accounts_page(
-                &stack,
-                &window,
-                directory_for_remove.clone(),
-                unlocked_for_remove.clone(),
-            );
-            if let Err(message) = result {
-                show_message_dialog(&window, "Account removal was not saved", &message);
+            if let (Some(stack), Some(window)) = (stack_weak.upgrade(), window_weak.upgrade()) {
+                show_accounts_page(
+                    &stack,
+                    &window,
+                    directory_for_remove.clone(),
+                    unlocked_for_remove.clone(),
+                );
+                if let Err(message) = result {
+                    show_message_dialog(&window, "Account removal was not saved", &message);
+                }
             }
-        }
-    });
+        },
+    );
 }
 
 fn show_accounts_page(
