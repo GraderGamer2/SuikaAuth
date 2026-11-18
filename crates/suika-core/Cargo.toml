@@ -1,0 +1,15 @@
+[package]
+name = "suika-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+argon2.workspace = true
+chacha20poly1305.workspace = true
+getrandom.workspace = true
+hmac.workspace = true
+sha1.workspace = true
+sha2.workspace = true
+zeroize.workspace = true

@@ -4,8 +4,13 @@ All notable project changes will be recorded here.
 
 ## Unreleased
 
-- Initialized the SuikaAuthenticator repository documentation.
-- Recorded the Linux and Android first-release targets and shared Rust backend architecture.
-- Established the `~/.SuikaAuthenticator/` application-data directory requirement for Linux.
-- Added Linux x86-64 and Android debug APK GitHub Actions build jobs with one-day artifact retention.
-- Pinned CI actions to verified release commit SHAs and documented artifact downloads.
+- Added the authoritative development roadmap.
+- Added the initial Rust workspace and shared suika-core crate.
+- Implemented bounded Argon2id key derivation using the selected 128 MiB / 3-iteration / 4-lane profile.
+- Implemented XChaCha20-Poly1305 authenticated encryption and zeroizing decrypted buffers.
+- Added CSPRNG-backed salt, key, and nonce generation.
+- Added HOTP/TOTP generation with SHA-1, SHA-256, and SHA-512 HMAC.
+- Added RFC 4226 and RFC 6238 test vectors.
+- Documented the threat model, cryptographic design, and dependency policy.
+- Updated CI to run Rust formatting and core tests before the platform frontends exist.
+- Preserved the one-day GitHub Actions artifact retention policy.

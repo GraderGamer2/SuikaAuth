@@ -1,54 +1,48 @@
 # Building and downloading SuikaAuthenticator
 
-## Planned source layout
+## Current Rust core
 
-The build workflow is designed for this layout:
+The repository contains a Rust workspace with the shared suika-core library:
 
-- `Cargo.toml`: root Rust workspace manifest.
-- `apps/linux/Cargo.toml`: Linux GTK4 application package.
-- `crates/`: shared Rust crates, including OTP and vault logic.
-- `android/gradlew`: checked-in Gradle wrapper.
-- `android/app/`: Android application module.
+    cargo fmt --all -- --check
+    cargo test --workspace
 
-The Linux package is expected to produce the executable named `suika-authenticator`. The Android Gradle project is expected to produce `app/build/outputs/apk/debug/app-debug.apk`.
+Rust 1.88 or newer is required by the current dependency baseline. The root rust-toolchain.toml selects the stable channel.
 
-The workflow deliberately detects whether each platform project exists. Until a platform project and its build manifests are committed, its job reports that the target is not initialized rather than failing due to missing source files.
+A reviewed Cargo.lock is still required before the first public application build. Direct cryptographic dependencies are exact-pinned while the core is under active development.
 
-## GitHub Actions builds
+## Planned application layout
 
-Workflow: [Build binaries](../.github/workflows/build.yml)
+- Cargo.toml: root Rust workspace manifest.
+- crates/suika-core/: shared OTP and vault cryptography.
+- apps/linux/: future native GTK4 Linux application.
+- android/: future native Kotlin application and checked-in Gradle wrapper.
 
-Triggers:
+The Linux package will produce the suika-authenticator executable. The Android Gradle project will produce a debug APK.
 
-- Pushes that change application source, manifests, or the workflow on `main`.
-- Pull requests that change application source, manifests, or the workflow.
-- Manual runs through **Actions → Build binaries → Run workflow**.
+## GitHub Actions
 
-The Linux job builds the release executable on an Ubuntu x86-64 runner with GTK4 development headers installed. The resulting executable dynamically links to GTK4 and other system libraries; it is not currently packaged as a fully self-contained Linux image.
+Workflow: .github/workflows/build.yml
 
-The Android job builds an installable **debug APK**. Debug APKs are suitable for development and testing. A production release APK will require a separate, deliberately managed signing process.
+Triggers include relevant source pushes to main, pull requests, and manual runs. The Linux job now runs Rust formatting and workspace tests as soon as the Rust core exists. The Linux executable and Android APK build steps remain conditional until their respective application projects have been added.
 
 ## Artifact names and retention
 
-Each successful platform build uploads a separate artifact:
+- suika-authenticator-linux-x86_64
+- suika-authenticator-android-debug
 
-- `suika-authenticator-linux-x86_64`
-- `suika-authenticator-android-debug`
+Both artifacts use retention-days: 1. GitHub deletes them after one day. This is artifact retention, not a permanent release asset.
 
-Both upload steps set `retention-days: 1`. GitHub therefore deletes each uploaded build artifact after one day. This is an artifact-retention setting, not a permanent release asset.
+To download a build:
 
-## Downloading a build
+1. Open the repository's Build binaries workflow.
+2. Open the latest successful run.
+3. Download the desired platform artifact from its Artifacts section.
 
-1. Open the repository on GitHub.
-2. Select **Actions**.
-3. Select the latest **Build binaries** workflow run.
-4. In the run summary, locate **Artifacts**.
-5. Download the Linux or Android artifact ZIP.
+GitHub requires sign-in and repository read access. The artifact expires after one day.
 
-GitHub requires the downloader to be signed in and have repository read access. The artifact download link remains valid only while the artifact exists.
+## Release distinction
 
-## Reproducibility and integrity
+Android debug APKs are development builds. A production APK requires deliberate signing configuration. The Linux executable is dynamically linked to GTK4 and required system libraries; it is not currently a fully self-contained Linux package.
 
-The workflow will build from the checked-out commit and create a SHA-256 checksum file alongside each binary. Keep the artifact and checksum together when verifying a downloaded build.
-
-The workflow is not a signed production release pipeline. Release signing, provenance attestations, and permanent release assets should be designed separately before public production distribution.
+Permanent GitHub Releases, signing, and provenance attestations will be designed separately from temporary CI artifacts.

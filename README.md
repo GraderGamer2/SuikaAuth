@@ -1,53 +1,47 @@
 # SuikaAuthenticator
 
-SuikaAuthenticator is a lightweight, offline-first authenticator for Linux and Android, built around a shared Rust security core and native platform interfaces.
+SuikaAuthenticator is a lightweight, offline-first authenticator for Linux and Android. It uses a shared Rust security core with native platform interfaces.
 
-## Initial platform targets
+## Initial platforms
 
-- **Linux:** native GTK4 application, initially targeting x86-64.
-- **Android:** native Kotlin application with the shared Rust backend integrated through JNI.
+- **Linux:** native GTK4 application, initially x86-64.
+- **Android:** native Kotlin application using the shared Rust backend through JNI.
 
-The Linux and Android applications share the same OTP implementation, encrypted vault format, key derivation, and backup logic. Platform-specific code is limited to user interface and operating-system integration.
+Both applications share the same OTP implementation, cryptographic primitives, vault format, and backup logic.
 
-## Security and architecture baseline
+## Security baseline
 
-- TOTP and HOTP compatibility, including SHA-1, SHA-256, and SHA-512 HMAC algorithms.
-- Self-contained encrypted vault; no remote service, cloud account, or OS keyring is required.
-- Argon2id password-based key derivation, initially configured for 128 MiB, 3 iterations, and 4 lanes.
+- TOTP and HOTP with HMAC-SHA-1, SHA-256, and SHA-512.
+- Self-contained encrypted vault; no cloud account, remote service, or mandatory OS keyring.
+- Argon2id password-derived wrapping key: 128 MiB, 3 iterations, 4 lanes.
 - XChaCha20-Poly1305 authenticated encryption with a random 256-bit data-encryption key.
-- Optional biometric unlocking on supported Android devices; the master password remains the recovery mechanism.
-- Encrypted, portable backups.
+- Optional Android biometric unlock; the master password remains the recovery method.
+- Encrypted portable backups.
 - No plaintext vault files or application telemetry.
 
-Cryptographic parameters and the vault format must be reviewed and tested before being treated as production-ready.
+Read the threat model (docs/THREAT_MODEL.md) and cryptographic design (docs/CRYPTOGRAPHY.md). The current core is an initial implementation and is not yet a production security audit.
 
-## Application data location
+## Application data directory
 
-All persistent, application-owned user data must stay inside one application-specific directory.
+All application-owned persistent user data must stay in one application-specific directory:
 
-- **Linux:** `~/.SuikaAuthenticator/`
-- **Android:** one dedicated application-private directory under the app's internal files area.
+- **Linux:** ~/.SuikaAuthenticator/
+- **Android:** one dedicated application-private internal directory.
 
-Do not scatter application data across XDG configuration, data, or cache directories, or other per-user locations. The Linux directory will contain the encrypted vault, preferences, backups, imports, and any future application-owned persistent files.
+Do not scatter application data across XDG configuration, data, or cache directories, or other per-user locations.
 
-## Build downloads
+## Development status
 
-GitHub Actions builds the Linux executable and Android debug APK when their respective projects are present. Build artifacts are uploaded to the workflow run and retained for **one day only**.
+See ROADMAP.md for the authoritative implementation sequence and current milestone. The shared Rust core is being established before the Linux and Android interfaces.
 
-To download a build:
+## CI downloads
 
-1. Open the [Build binaries workflow](https://github.com/GraderGamer2/SuikaAuth/actions/workflows/build.yml).
-2. Open the latest successful run.
-3. Download `suika-authenticator-linux-x86_64` or `suika-authenticator-android-debug` from the run's **Artifacts** section.
+The Build binaries workflow is configured to build the Linux executable and Android debug APK once the platform projects exist.
 
-Artifacts require GitHub access to the repository and automatically expire after 1 day. These are temporary CI builds, not permanent GitHub Releases.
+Successful build artifacts are available under the workflow run's Artifacts section and expire after **one day**. They are temporary CI downloads, not permanent GitHub Releases.
 
-See [docs/BUILDING.md](docs/BUILDING.md) for build layout and download details.
+See docs/BUILDING.md for build details.
 
-## Project status
+## Dependency policy
 
-The repository is being initialized. The CI workflow is prepared for the planned project layout; platform binaries will appear once the Linux and Android application projects have been added.
-
-## License
-
-License selection is pending.
+See docs/DEPENDENCIES.md. Keep the shared core small; platform UI dependencies must not enter it.

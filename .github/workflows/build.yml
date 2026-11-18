@@ -32,52 +32,58 @@ concurrency:
 
 jobs:
   linux:
-    name: Linux x86_64
+    name: Rust core and Linux x86_64
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # actions/checkout v7.0.1
 
-      - name: Detect Linux project
+      - name: Detect Rust workspace and Linux application
         id: detect
         shell: bash
         run: |
-          if [[ -f Cargo.toml && -f apps/linux/Cargo.toml ]]; then
-            echo "ready=true" >> "$GITHUB_OUTPUT"
+          if [[ -f Cargo.toml ]]; then
+            echo "core_ready=true" >> "$GITHUB_OUTPUT"
           else
-            echo "ready=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::Linux build skipped: the Rust workspace or apps/linux/Cargo.toml has not been added yet."
+            echo "core_ready=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          if [[ -f apps/linux/Cargo.toml ]]; then
+            echo "linux_app_ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "linux_app_ready=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Linux executable build skipped: apps/linux/Cargo.toml has not been added yet."
           fi
 
       - name: Set up Rust
-        if: steps.detect.outputs.ready == 'true'
+        if: steps.detect.outputs.core_ready == 'true'
         uses: actions-rust-lang/setup-rust-toolchain@a188e68d0fd2bd36ad51dccb2b07ba6e75105f30 # setup-rust-toolchain v2.0.1
         with:
           toolchain: stable
           components: rustfmt, clippy
           cache: true
 
+      - name: Check formatting
+        if: steps.detect.outputs.core_ready == 'true'
+        run: cargo fmt --all -- --check
+
+      - name: Run Rust workspace tests
+        if: steps.detect.outputs.core_ready == 'true'
+        run: cargo test --workspace --all-targets
+
       - name: Install GTK4 build dependencies
-        if: steps.detect.outputs.ready == 'true'
+        if: steps.detect.outputs.linux_app_ready == 'true'
         run: |
           sudo apt-get update
           sudo apt-get install --no-install-recommends --yes libgtk-4-dev pkg-config
 
-      - name: Check formatting
-        if: steps.detect.outputs.ready == 'true'
-        run: cargo fmt --all -- --check
-
-      - name: Run Rust tests
-        if: steps.detect.outputs.ready == 'true'
-        run: cargo test --workspace --locked
-
       - name: Build optimized Linux executable
-        if: steps.detect.outputs.ready == 'true'
-        run: cargo build --locked --release --package suika-authenticator-linux --bin suika-authenticator
+        if: steps.detect.outputs.linux_app_ready == 'true'
+        run: cargo build --release --package suika-authenticator-linux --bin suika-authenticator
 
       - name: Prepare Linux download
-        if: steps.detect.outputs.ready == 'true'
+        if: steps.detect.outputs.linux_app_ready == 'true'
         shell: bash
         run: |
           install -D -m 0755 target/release/suika-authenticator dist/suika-authenticator
@@ -91,7 +97,7 @@ jobs:
           sha256sum dist/suika-authenticator > dist/SHA256SUMS.txt
 
       - name: Upload Linux executable (expires after 1 day)
-        if: steps.detect.outputs.ready == 'true'
+        if: steps.detect.outputs.linux_app_ready == 'true'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # actions/upload-artifact v7.0.2
         with:
           name: suika-authenticator-linux-x86_64
