@@ -10,6 +10,6 @@ name = "suika-authenticator"
 path = "src/main.rs"
 
 [dependencies]
-gtk = { package = "gtk4", version = "=0.11.5", default-features = false }
+gtk = { package = "gtk4", version = "=0.10.3", default-features = false }
 suika-core = { path = "../../crates/suika-core" }
 zeroize.workspace = true
