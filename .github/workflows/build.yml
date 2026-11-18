@@ -59,8 +59,22 @@ jobs:
       - name: Install GTK4 build dependencies
         if: steps.detect.outputs.linux_app_ready == 'true'
         run: |
-          sudo apt-get update
-          sudo apt-get install --no-install-recommends --yes libgtk-4-dev pkg-config
+          if ! timeout 120s sudo apt-get \
+            -o Acquire::Retries=1 \
+            -o Acquire::http::Timeout=30 \
+            -o Acquire::https::Timeout=30 \
+            install --no-install-recommends --yes libgtk-4-dev pkg-config; then
+            timeout 180s sudo apt-get \
+              -o Acquire::Retries=1 \
+              -o Acquire::http::Timeout=30 \
+              -o Acquire::https::Timeout=30 \
+              update
+            timeout 180s sudo apt-get \
+              -o Acquire::Retries=1 \
+              -o Acquire::http::Timeout=30 \
+              -o Acquire::https::Timeout=30 \
+              install --no-install-recommends --yes libgtk-4-dev pkg-config
+          fi
 
       - name: Set up Rust
         if: steps.detect.outputs.core_ready == 'true'
