@@ -16,7 +16,7 @@ The first-run screen uses a create-only storage operation. If another applicatio
 
 If vault.bin exists and its public container structure is valid, the application requests the master password. Key derivation and authenticated decryption run on a worker thread, so GTK remains responsive while Argon2id is running.
 
-A successful unlock displays the account list. TOTP codes refresh once per second, HOTP counters are displayed without being advanced automatically, and the user must click Copy to put a code on the desktop clipboard. Lock explicitly drops the unlocked core session.
+A successful unlock displays the account list. TOTP codes refresh once per second; HOTP counters are displayed and are advanced only by the explicit “Copy & next” action, which persists the new counter before placing the consumed code on the desktop clipboard. The Lock button and five minutes without pointer, click, keyboard, or scroll activity drop the unlocked core session and return to the unlock screen.
 
 ## Persistent data
 
@@ -28,7 +28,7 @@ The shared storage layer applies owner-only directory and file permissions on Un
 
 ## Current scope
 
-This is the initial functional shell. It supports first-run setup, unlock, a live account overview, OTP display, copy, explicit locking, and manual TOTP enrollment using Base32 secrets. Account editing/removal, HOTP enrollment, search, inactivity locking, and password-change UI are not yet implemented.
+The Linux frontend supports first-run setup, unlock, a live account overview, OTP display, TOTP/HOTP enrollment, copy, “Copy & next” for HOTP, local search by issuer/account, account editing/removal, explicit locking, and automatic locking after five minutes without input. Password-change UI and inactivity-timeout preferences are not yet implemented.
 
 ## Account persistence
 
@@ -37,3 +37,7 @@ Account records are encoded into a zeroizing buffer, installed into the unlocked
 The manual enrollment form accepts TOTP or HOTP, SHA1/SHA256/SHA512, and 6/7/8 digits. TOTP periods range from 1 to 86400 seconds; HOTP accepts a user-supplied unsigned 64-bit initial counter. Base32 whitespace and hyphens are ignored, lowercase input is accepted, and the decoded secret must be at least 16 bytes and no more than 128 bytes.
 
 No password is stored in application settings or command-line arguments. The master password entry is cleared before the worker starts; the worker receives a zeroizing byte buffer. The application does not log passwords, OTP secrets, or generated codes.
+
+## Idle lock and shutdown
+
+The inactivity timer is reset by pointer movement, pointer/touch clicks, keyboard input, and scrolling anywhere in the main GTK window. After five minutes without those events, the application drops the unlocked vault session, removes the account and enrollment pages, and returns to the password screen. The same session drop occurs when the main window closes or the GTK application shuts down. Secret-entry widgets are cleared on lock and shutdown. This is best-effort application-level memory cleanup; it is not a guarantee against memory acquisition by a process with sufficient privileges, swap capture, or abrupt power loss.

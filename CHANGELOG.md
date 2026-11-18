@@ -4,6 +4,12 @@ All notable project changes will be recorded here.
 
 ## Unreleased
 
+- Added a five-minute inactivity lock driven by captured pointer, click, keyboard, and scroll activity across the GTK window.
+- Centralized explicit and automatic locking so the unlocked vault session is dropped and add/edit/account pages are detached.
+- Clear secret entry values on lock, window close, and application shutdown; drop the unlocked session on both window close and the application shutdown signal.
+- Bound OTP refresh timers to their account page so they stop after that page is hidden or replaced.
+- Store the normalized Base32 input in a zeroizing buffer in addition to the decoded secret bytes.
+
 - Added account editing that preserves stable IDs, groups, and favorites while allowing optional secret replacement without displaying the existing secret.
 - Added explicit AlertDialog confirmation before removing an account; removed account secrets are dropped through the core's zeroizing ownership.
 - Added transactional account updates in suika-core and tests for metadata preservation, OTP changes, and invalid-update rollback.

@@ -3,12 +3,12 @@
 //! The shared core owns vault and account cryptography. This binary owns only
 //! GTK presentation and the Linux application-directory choice.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::mpsc::{self, TryRecvError};
 use std::thread;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use gtk::glib::{self, ControlFlow};
 use gtk::prelude::*;
@@ -25,6 +25,19 @@ use zeroize::Zeroizing;
 
 const APP_ID: &str = "org.suika.SuikaAuthenticator";
 const DATA_DIRECTORY: &str = ".SuikaAuthenticator";
+const INACTIVITY_LOCK_TIMEOUT: Duration = Duration::from_secs(5 * 60);
+
+thread_local! {
+    static LAST_ACTIVITY: Cell<Instant> = Cell::new(Instant::now());
+}
+
+fn record_activity() {
+    LAST_ACTIVITY.with(|last| last.set(Instant::now()));
+}
+
+fn inactivity_duration() -> Duration {
+    LAST_ACTIVITY.with(|last| Instant::now().saturating_duration_since(last.get()))
+}
 
 struct AuthenticatedVault {
     // Kept alive for the complete unlocked session. Dropping this clears the
@@ -53,11 +66,30 @@ fn build_application(application: &Application) {
         .default_height(680)
         .build();
 
+    let unlocked = Rc::new(RefCell::new(None::<AuthenticatedVault>));
+    install_activity_tracking(&window);
+
     let stack = Stack::new();
     stack.set_transition_type(gtk::StackTransitionType::Crossfade);
     window.set_child(Some(&stack));
 
-    let unlocked = Rc::new(RefCell::new(None::<AuthenticatedVault>));
+    let stack_for_close = stack.clone();
+    let unlocked_for_close = unlocked.clone();
+    window.connect_close_request(move |_| {
+        clear_secret_entries(stack_for_close.upcast_ref());
+        unlocked_for_close.borrow_mut().take();
+        glib::Propagation::Proceed
+    });
+
+    let stack_for_shutdown = stack.downgrade();
+    let unlocked_for_shutdown = unlocked.clone();
+    application.connect_shutdown(move |_| {
+        if let Some(stack) = stack_for_shutdown.upgrade() {
+            clear_secret_entries(&stack);
+        }
+        unlocked_for_shutdown.borrow_mut().take();
+    });
+
     let directory = match application_directory() {
         Ok(directory) => directory,
         Err(error) => {
@@ -86,7 +118,14 @@ fn build_application(application: &Application) {
         }
     };
 
-    show_auth_page(&stack, &window, directory, mode, unlocked);
+    let directory_for_timeout = directory.clone();
+    show_auth_page(&stack, &window, directory, mode, unlocked.clone());
+    start_inactivity_monitor(
+        &window,
+        &stack,
+        directory_for_timeout,
+        unlocked,
+    );
     window.present();
 }
 
@@ -98,6 +137,102 @@ fn application_directory() -> Result<PathBuf, String> {
         return Err("The HOME environment variable must contain an absolute path.".to_owned());
     }
     Ok(home.join(DATA_DIRECTORY))
+}
+
+fn clear_secret_entries(widget: &gtk::Widget) {
+    if widget.widget_name() == "suika-secret-entry" {
+        if let Ok(entry) = widget.clone().downcast::<Entry>() {
+            entry.set_text("");
+        }
+    }
+
+    let mut child = widget.first_child();
+    while let Some(current) = child {
+        clear_secret_entries(&current);
+        child = current.next_sibling();
+    }
+}
+
+fn install_activity_tracking(window: &ApplicationWindow) {
+    let motion = gtk::EventControllerMotion::new();
+    motion.set_propagation_phase(gtk::PropagationPhase::Capture);
+    motion.connect_motion(|_, _, _| record_activity());
+    window.add_controller(motion);
+
+    let click = gtk::GestureClick::new();
+    click.set_propagation_phase(gtk::PropagationPhase::Capture);
+    click.connect_pressed(|_, _, _, _| record_activity());
+    window.add_controller(click);
+
+    let key = gtk::EventControllerKey::new();
+    key.set_propagation_phase(gtk::PropagationPhase::Capture);
+    key.connect_key_pressed(|_, _, _, _| {
+        record_activity();
+        glib::Propagation::Proceed
+    });
+    window.add_controller(key);
+
+    let scroll = gtk::EventControllerScroll::new(gtk::EventControllerScrollFlags::BOTH_AXES);
+    scroll.set_propagation_phase(gtk::PropagationPhase::Capture);
+    scroll.connect_scroll(|_, _, _| {
+        record_activity();
+        glib::Propagation::Proceed
+    });
+    window.add_controller(scroll);
+}
+
+fn lock_vault_to_auth(
+    stack: &Stack,
+    window: &ApplicationWindow,
+    directory: PathBuf,
+    unlocked: Rc<RefCell<Option<AuthenticatedVault>>>,
+) {
+    clear_secret_entries(stack.upcast_ref());
+    unlocked.borrow_mut().take();
+    for name in ["accounts", "add-account", "edit-account"] {
+        if let Some(page) = stack.child_by_name(name) {
+            stack.remove(&page);
+        }
+    }
+    record_activity();
+    show_auth_page(stack, window, directory, AuthMode::Unlock, unlocked);
+}
+
+fn start_inactivity_monitor(
+    window: &ApplicationWindow,
+    stack: &Stack,
+    directory: PathBuf,
+    unlocked: Rc<RefCell<Option<AuthenticatedVault>>>,
+) {
+    let stack_weak = stack.downgrade();
+    let window_weak = window.downgrade();
+
+    glib::source::timeout_add_seconds_local(1, move || {
+        if window_weak.upgrade().is_none() {
+            unlocked.borrow_mut().take();
+            return ControlFlow::Break;
+        }
+
+        let should_lock = unlocked.borrow().is_some()
+            && inactivity_duration() >= INACTIVITY_LOCK_TIMEOUT;
+        if should_lock {
+            if let (Some(stack), Some(window)) =
+                (stack_weak.upgrade(), window_weak.upgrade())
+            {
+                lock_vault_to_auth(
+                    &stack,
+                    &window,
+                    directory.clone(),
+                    unlocked.clone(),
+                );
+            } else {
+                unlocked.borrow_mut().take();
+                return ControlFlow::Break;
+            }
+        }
+
+        ControlFlow::Continue
+    });
 }
 
 fn show_startup_error(stack: &Stack, message: &str) {
@@ -293,6 +428,7 @@ fn show_auth_page(
 
                 match result {
                     Ok(authenticated) => {
+                        record_activity();
                         *unlocked.borrow_mut() = Some(authenticated);
                         if let (Some(stack), Some(window)) =
                             (stack_weak.upgrade(), window_weak.upgrade())
@@ -468,6 +604,7 @@ fn show_add_account_page(
     let secret = labeled_entry(&page, "TOTP secret (Base32)", "Paste the secret key");
     secret.set_visibility(false);
     secret.set_input_purpose(gtk::InputPurpose::Password);
+    secret.set_widget_name("suika-secret-entry");
     secret.set_max_length(208);
 
     let mode = labeled_entry(&page, "OTP mode", "TOTP or HOTP");
@@ -507,7 +644,9 @@ fn show_add_account_page(
     let window_weak = window.downgrade();
     let directory_for_back = directory.clone();
     let unlocked_for_back = unlocked.clone();
+    let secret_for_back = secret.clone();
     back.connect_clicked(move |_| {
+        secret_for_back.set_text("");
         if let (Some(stack), Some(window)) = (stack_weak.upgrade(), window_weak.upgrade()) {
             show_accounts_page(
                 &stack,
@@ -669,10 +808,12 @@ fn persist_vault(vault: &mut AuthenticatedVault, directory: &Path) -> Result<(),
 }
 
 fn decode_base32(input: &str) -> Result<Zeroizing<Vec<u8>>, String> {
-    let compact: String = input
-        .chars()
-        .filter(|character| !character.is_ascii_whitespace() && *character != '-')
-        .collect();
+    let compact = Zeroizing::new(
+        input
+            .chars()
+            .filter(|character| !character.is_ascii_whitespace() && *character != '-')
+            .collect::<String>(),
+    );
 
     if compact.is_empty() {
         return Err("Enter a Base32 secret.".to_owned());
@@ -856,6 +997,7 @@ fn show_edit_account_page(
     );
     secret.set_visibility(false);
     secret.set_input_purpose(gtk::InputPurpose::Password);
+    secret.set_widget_name("suika-secret-entry");
     secret.set_max_length(208);
 
     let mode = labeled_entry(&page, "OTP mode", "TOTP or HOTP");
@@ -895,7 +1037,9 @@ fn show_edit_account_page(
     let window_weak = window.downgrade();
     let directory_for_back = directory.clone();
     let unlocked_for_back = unlocked.clone();
+    let secret_for_back = secret.clone();
     back.connect_clicked(move |_| {
+        secret_for_back.set_text("");
         if let (Some(stack), Some(window)) = (stack_weak.upgrade(), window_weak.upgrade()) {
             show_accounts_page(
                 &stack,
@@ -1120,6 +1264,12 @@ fn show_accounts_page(
     directory: PathBuf,
     unlocked: Rc<RefCell<Option<AuthenticatedVault>>>,
 ) {
+    for name in ["add-account", "edit-account"] {
+        if let Some(form_page) = stack.child_by_name(name) {
+            stack.remove(&form_page);
+        }
+    }
+
     let page = GtkBox::new(Orientation::Vertical, 14);
     page.set_margin_top(24);
     page.set_margin_bottom(24);
@@ -1372,23 +1522,11 @@ fn show_accounts_page(
     let directory_for_lock = directory.clone();
     let unlocked_for_lock = unlocked.clone();
     lock.connect_clicked(move |_| {
-        // Drop the decrypted session first, then detach the old account page
-        // so its code labels cannot remain hidden in the GTK stack.
-        unlocked_for_lock.borrow_mut().take();
-
         if let (Some(stack), Some(window)) = (stack_for_lock.upgrade(), window_for_lock.upgrade()) {
-            if let Some(account_page) = stack.child_by_name("accounts") {
-                stack.remove(&account_page);
-            }
-            if let Some(enrollment_page) = stack.child_by_name("add-account") {
-                stack.remove(&enrollment_page);
-            }
-
-            show_auth_page(
+            lock_vault_to_auth(
                 &stack,
                 &window,
                 directory_for_lock.clone(),
-                AuthMode::Unlock,
                 unlocked_for_lock.clone(),
             );
         }
@@ -1396,7 +1534,12 @@ fn show_accounts_page(
 
     if !row_widgets.is_empty() {
         let unlocked_for_timer = unlocked.clone();
+        let page_for_timer = page.clone();
         glib::source::timeout_add_seconds_local(1, move || {
+            if !page_for_timer.is_mapped() {
+                return ControlFlow::Break;
+            }
+
             let borrowed = unlocked_for_timer.borrow();
             let Some(vault) = borrowed.as_ref() else {
                 return ControlFlow::Break;

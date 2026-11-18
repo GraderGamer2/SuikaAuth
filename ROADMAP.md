@@ -47,7 +47,8 @@ Status: **Milestone 4 — Linux native frontend**
 - [x] Add manual TOTP account enrollment with Base32 validation and encrypted persistence.
 - [x] Add HOTP enrollment and account search.
 - [x] Add account editing and removal, preserving stable IDs and never displaying existing secrets.
-- [ ] Add lock-on-inactivity and secure process shutdown.
+- [x] Lock the vault after five minutes without input and on explicit Lock.
+- [x] Drop the unlocked session and clear account secret entry fields on window close/application shutdown.
 - [x] Build an optimized x86-64 release executable and document system runtime dependencies.
 
 ## 5. Android application
