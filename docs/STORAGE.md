@@ -44,3 +44,11 @@ Because the temporary file is in the same directory, the rename is atomic on the
 - The storage layer checks the vault magic; cryptographic and complete format validation occurs when the core unlocks the vault.
 
 The storage layer does not defend against a fully compromised process or a malicious actor running under the same user identity who can continuously race filesystem operations. Its scope is safe ordinary operation, accidental corruption resistance, and protection against common path/file mistakes.
+
+## Interrupted writes and crash behavior
+
+If an ordinary write, flush, or pre-rename operation fails, the pending-file guard removes the temporary file and the previous vault remains untouched. This path is covered by a failure-injection test.
+
+If the process or device stops after the temporary file is created but before rename, the previous vault remains the committed file. A leftover temporary file may remain because a process crash does not run Rust destructors; reopening the store ignores all temporary files and reads only vault.bin. The leftover file contains ciphertext, not plaintext. Automatic stale-file cleanup is intentionally deferred so one running application instance cannot delete another instance's active temporary file.
+
+If directory fsync fails after the rename, the new vault may already be visible but its crash durability is uncertain. The storage method reports the error rather than claiming durable success. Actual power-loss testing on target Linux and Android filesystems remains a release validation item.

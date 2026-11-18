@@ -167,6 +167,17 @@ impl VaultStore {
     /// rename, the containing directory is synced to make the directory entry
     /// durable across a crash where the filesystem supports directory fsync.
     pub fn save(&self, encrypted_vault: &[u8]) -> Result<(), StorageError> {
+        self.save_before_rename(encrypted_vault, || Ok(()))
+    }
+
+    fn save_before_rename<F>(
+        &self,
+        encrypted_vault: &[u8],
+        before_rename: F,
+    ) -> Result<(), StorageError>
+    where
+        F: FnOnce() -> Result<(), StorageError>,
+    {
         validate_vault_bytes(encrypted_vault)?;
 
         let (temporary_path, mut temporary_file) = self.create_temporary_file()?;
@@ -175,6 +186,10 @@ impl VaultStore {
         temporary_file.write_all(encrypted_vault)?;
         temporary_file.sync_all()?;
         drop(temporary_file);
+
+        // This boundary makes the last pre-rename failure path explicit and
+        // testable. In production the closure is a no-op.
+        before_rename()?;
 
         fs::rename(cleanup.path(), &self.vault_path)?;
         cleanup.commit();
@@ -471,6 +486,52 @@ mod tests {
         ));
 
         assert_eq!(store.load().expect("original remains"), original);
+    }
+
+    #[test]
+    fn interrupted_before_rename_preserves_the_previous_vault() {
+        let temporary = TestDirectory::new();
+        let store = VaultStore::open(temporary.0.join(".SuikaAuthenticator"))
+            .expect("app directory should open");
+        let original = test_vault(b"last committed vault", b"password");
+        let replacement = test_vault(b"uncommitted replacement", b"password");
+        store.save(&original).expect("original vault should save");
+
+        let interrupted = store.save_before_rename(&replacement, || {
+            Err(StorageError::Io(std::io::Error::new(
+                std::io::ErrorKind::Interrupted,
+                "simulated interruption before atomic rename",
+            )))
+        });
+        assert!(matches!(interrupted, Err(StorageError::Io(_))));
+        assert_eq!(store.load().expect("old vault must remain"), original);
+
+        let leftovers = fs::read_dir(store.directory())
+            .expect("directory should be readable")
+            .filter_map(Result::ok)
+            .filter(|entry| entry.file_name().to_string_lossy().starts_with(".vault.tmp-"))
+            .count();
+        assert_eq!(leftovers, 0, "failed save must clean its temporary file");
+    }
+
+    #[test]
+    fn reopen_ignores_a_partial_temporary_file_from_a_crashed_writer() {
+        let temporary = TestDirectory::new();
+        let app_directory = temporary.0.join(".SuikaAuthenticator");
+        let store = VaultStore::open(&app_directory).expect("app directory should open");
+        let original = test_vault(b"last committed vault", b"password");
+        store.save(&original).expect("original vault should save");
+
+        // Simulate a process or power failure after creating a temporary file
+        // but before the atomic rename. Only vault.bin is ever loaded.
+        fs::write(
+            app_directory.join(".vault.tmp-simulated-crash"),
+            b"partial encrypted replacement",
+        )
+        .expect("simulated leftover should be written");
+
+        let reopened = VaultStore::open(&app_directory).expect("store should reopen");
+        assert_eq!(reopened.load().expect("committed vault should load"), original);
     }
 
     #[test]

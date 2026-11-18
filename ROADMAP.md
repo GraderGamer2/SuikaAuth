@@ -33,9 +33,10 @@ Status: **Milestone 3 — encrypted vault container and storage in progress**
 - [x] Implement random DEK wrapping and password change.
 - [x] Implement bounded parsing and clear failure paths.
 - [x] Implement versioned account serialization without plaintext disk files, returning zeroizing buffers.
-- [ ] Implement atomic saves, file permissions, and crash-safe replacement (implementation added; awaiting CI validation).
+- [x] Implement atomic saves, file permissions, and crash-safe replacement on Linux/Android filesystem semantics.
 - [x] Add corruption, truncation, wrong-password, and KDF-bound tests.
-- [ ] Add interrupted-write and crash-recovery tests.
+- [x] Add interrupted-write failure-path and leftover-temporary-file recovery tests.
+- [ ] Perform abrupt process-kill and power-loss durability tests on target Linux and Android filesystems.
 
 ## 4. Linux application
 
