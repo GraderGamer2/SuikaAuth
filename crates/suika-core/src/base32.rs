@@ -10,7 +10,7 @@ use core::fmt;
 use zeroize::Zeroizing;
 
 const MAX_INPUT_BYTES: usize = 1024;
-const MAX_DATA_CHARACTERS: usize = 206;
+const MAX_DATA_CHARACTERS: usize = 208;
 const MAX_DECODED_BYTES: usize = 128;
 
 /// Errors returned while decoding an encoded Base32 secret.
