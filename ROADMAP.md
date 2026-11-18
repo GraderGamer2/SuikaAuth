@@ -2,7 +2,7 @@
 
 This is the authoritative project roadmap. Update its checkboxes and the changelog as work is completed. Development follows this order unless a security or correctness issue requires reordering.
 
-Status: **Milestone 3 — encrypted vault container in progress**
+Status: **Milestone 3 — encrypted vault container and storage in progress**
 
 ## 1. Repository and architecture foundation
 
@@ -33,7 +33,7 @@ Status: **Milestone 3 — encrypted vault container in progress**
 - [x] Implement random DEK wrapping and password change.
 - [x] Implement bounded parsing and clear failure paths.
 - [x] Implement versioned account serialization without plaintext disk files, returning zeroizing buffers.
-- [ ] Implement atomic saves, file permissions, and crash-safe replacement.
+- [ ] Implement atomic saves, file permissions, and crash-safe replacement (implementation added; awaiting CI validation).
 - [x] Add corruption, truncation, wrong-password, and KDF-bound tests.
 - [ ] Add interrupted-write and crash-recovery tests.
 

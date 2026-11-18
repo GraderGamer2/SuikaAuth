@@ -16,6 +16,10 @@ pub const VAULT_MAGIC: &[u8; 8] = b"SUIKAVLT";
 pub const VAULT_FORMAT_VERSION: u16 = 1;
 /// Maximum plaintext account database size (16 MiB).
 pub const MAX_PLAINTEXT_BYTES: usize = 16 * 1024 * 1024;
+/// Maximum serialized vault file size, including the fixed header and AEAD tag.
+pub const MAX_VAULT_FILE_BYTES: usize = 158 + MAX_PLAINTEXT_BYTES + TAG_BYTES;
+/// Minimum serialized vault file size for an empty encrypted payload.
+pub const MIN_VAULT_FILE_BYTES: usize = 158 + TAG_BYTES;
 
 const KDF_ARGON2ID: u8 = 1;
 const AEAD_XCHACHA20_POLY1305: u8 = 1;

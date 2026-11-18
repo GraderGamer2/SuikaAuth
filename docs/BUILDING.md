@@ -2,7 +2,7 @@
 
 ## Current Rust core
 
-The repository contains a Rust workspace with the shared suika-core library. It includes TOTP/HOTP primitives, zeroizing account records and serialization, Argon2id key derivation, XChaCha20-Poly1305, and the versioned encrypted vault container:
+The repository contains a Rust workspace with the shared suika-core library. It includes TOTP/HOTP primitives, zeroizing account records and serialization, Argon2id key derivation, XChaCha20-Poly1305, versioned encrypted vaults, and the app-directory vault file store:
 
     cargo fmt --all -- --check
     cargo test --workspace
@@ -14,7 +14,7 @@ A reviewed Cargo.lock is still required before the first public application buil
 ## Planned application layout
 
 - Cargo.toml: root Rust workspace manifest.
-- crates/suika-core/: shared OTP and vault cryptography.
+- crates/suika-core/: shared OTP, account database, vault cryptography, and encrypted-vault file storage.
 - apps/linux/: future native GTK4 Linux application.
 - android/: future native Kotlin application and checked-in Gradle wrapper.
 
@@ -24,7 +24,7 @@ The Linux package will produce the suika-authenticator executable. The Android G
 
 Workflow: .github/workflows/build.yml
 
-Triggers include relevant source pushes to main, pull requests, and manual runs. The Linux job now runs Rust formatting and workspace tests as soon as the Rust core exists. The Linux executable and Android APK build steps remain conditional until their respective application projects have been added.
+Triggers include relevant source pushes to main, pull requests, and manual runs. The Linux job now runs Rust formatting, workspace tests, Clippy, and dependency feature-tree inspection as soon as the Rust core exists. The Linux executable and Android APK build steps remain conditional until their respective application projects have been added.
 
 ## Artifact names and retention
 

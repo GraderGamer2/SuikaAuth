@@ -4,10 +4,11 @@ All notable project changes will be recorded here.
 
 ## Unreleased
 
+- Added the dependency-free vault file store using caller-supplied application-owned directories, bounded reads, restrictive Unix permissions, temporary-file cleanup, and atomic replacement.
+- Added storage tests for encrypted-vault round trips, replacement, invalid-input preservation, directory permissions, relative paths, and symlink rejection.
 - Added a compact versioned account database with TOTP/HOTP parameters, issuer/label/group metadata, favorites, and random account IDs.
 - Added zeroizing account-secret ownership and zeroizing encoded database buffers without adding a serialization framework dependency.
 - Added account database round-trip, TOTP/HOTP generation, counter advancement, malformed header, version, and UTF-8 validation tests.
-
 - Added the initial versioned encrypted vault container with Argon2id-wrapped DEK and XChaCha20-Poly1305 payload encryption.
 - Added bounded vault parsing, authenticated header metadata, generic unlock failures, and password-change support.
 - Added vault round-trip, tampering, wrong-password, truncation, KDF-bound, and payload-size tests.

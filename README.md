@@ -32,7 +32,7 @@ Do not scatter application data across XDG configuration, data, or cache directo
 
 ## Development status
 
-See ROADMAP.md for the authoritative implementation sequence and current milestone. The shared Rust core now includes RFC-tested TOTP/HOTP generation, an Argon2id/XChaCha20 encrypted vault, and a compact versioned account database. CI checks formatting, tests, Clippy, and the enabled dependency feature tree. Linux and Android interfaces follow the vault/storage work.
+See ROADMAP.md for the authoritative implementation sequence and current milestone. The shared Rust core includes RFC-tested TOTP/HOTP generation, an Argon2id/XChaCha20 encrypted vault, a compact versioned account database, and an app-directory vault file store. CI checks formatting, tests, Clippy, and the enabled dependency feature tree. Linux and Android interfaces follow the vault/storage work.
 
 ## CI downloads
 
