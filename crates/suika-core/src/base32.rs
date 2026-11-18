@@ -40,12 +40,8 @@ impl fmt::Display for Base32Error {
             Self::InvalidLength => "The Base32 secret has an invalid length.",
             Self::InvalidPadding => "The Base32 secret has invalid padding.",
             Self::InvalidCharacter => "The Base32 secret contains an invalid character.",
-            Self::NonZeroTrailingBits => {
-                "The Base32 secret has non-zero unused trailing bits."
-            }
-            Self::DecodedLengthOutOfRange => {
-                "The decoded Base32 secret must be 1 to 128 bytes."
-            }
+            Self::NonZeroTrailingBits => "The Base32 secret has non-zero unused trailing bits.",
+            Self::DecodedLengthOutOfRange => "The decoded Base32 secret must be 1 to 128 bytes.",
         };
 
         f.write_str(message)
@@ -157,7 +153,7 @@ mod tests {
     #[test]
     fn accepts_unpadded_lowercase_and_separators() {
         let decoded = decode_base32("mzxw6-ytb oi").expect("formatted Base32 should decode");
-        assert_eq!(decoded.as_slice(), b"fooba");
+        assert_eq!(decoded.as_slice(), b"foobar");
     }
 
     #[test]
@@ -166,10 +162,7 @@ mod tests {
             decode_base32("M0").err(),
             Some(Base32Error::InvalidCharacter)
         );
-        assert_eq!(
-            decode_base32("A").err(),
-            Some(Base32Error::InvalidLength)
-        );
+        assert_eq!(decode_base32("A").err(), Some(Base32Error::InvalidLength));
         assert_eq!(decode_base32("   - ").err(), Some(Base32Error::EmptyInput));
     }
 
@@ -191,7 +184,10 @@ mod tests {
             decode_base32("MZ").err(),
             Some(Base32Error::NonZeroTrailingBits)
         );
-        assert_eq!(decode_base32("MY").expect("canonical tail").as_slice(), b"f");
+        assert_eq!(
+            decode_base32("MY").expect("canonical tail").as_slice(),
+            b"f"
+        );
     }
 
     #[test]

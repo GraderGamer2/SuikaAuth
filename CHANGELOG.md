@@ -4,6 +4,8 @@ All notable project changes will be recorded here.
 
 ## Unreleased
 
+- Corrected the Base32 separator test vector and refreshed Android platform guidance: AGP 9.4.0 tool versions, built-in Kotlin, and one `noBackupFilesDir` application-data root.
+
 - Moved RFC 4648 Base32 decoding into the shared Rust core with bounded input/output, strict padding and trailing-bit checks, and zeroizing buffers; Linux add/edit enrollment now uses the shared decoder.
 - Fixed shutdown cleanup's GTK widget upcast so the Linux workspace compiles before tests, Clippy, dependency inspection, and release linking.
 

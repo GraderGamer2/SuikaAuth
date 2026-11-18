@@ -22,7 +22,9 @@ The initial Android package will ship two 64-bit ABIs:
 
 Android expects native libraries inside the APK at `lib/<abi>/lib<name>.so`. Build the Rust shared library with `cargo-ndk`, placing the results under `android/app/src/main/jniLibs/`. Use explicit target/API-level inputs and pin the Rust toolchain, NDK, cargo-ndk version, and Gradle tooling in CI.
 
-The current stable Android Gradle Plugin line is 9.5.x. The exact Gradle wrapper and Kotlin plugin versions will be pinned together against the official compatibility matrix when the Gradle project is introduced; do not use dynamic version selectors such as `9.+`. The project should use Java 17 for the Gradle build.
+The initial Android build baseline is Android Gradle Plugin 9.4.0 with Gradle 9.6.0, SDK Build Tools 36.0.0, NDK 28.2.13676358, and JDK 17. These are the versions documented by the AGP 9.4.0 release notes (September 2026); re-check the official release notes when the Gradle project is created and pin exact versions. AGP 9 enables built-in Kotlin support, so do not also apply `org.jetbrains.kotlin.android` to the application module. Avoid dynamic version selectors such as `9.+`.
+
+References: [AGP 9.4.0 release notes](https://developer.android.com/build/releases/agp-9-4-0-release-notes) and [Migrate to built-in Kotlin](https://developer.android.com/build/migrate-to-built-in-kotlin).
 
 ## Rust/Kotlin boundary
 
@@ -47,10 +49,12 @@ Argon2id and other blocking cryptographic/file operations must run on a Kotlin w
 All SuikaAuthenticator-owned persistent state must remain under one dedicated app-private internal directory:
 
 ```
-context.filesDir/SuikaAuthenticator/
+context.noBackupFilesDir/SuikaAuthenticator/
 ```
 
-The encrypted vault, preferences, and backups will live below that directory. Do not use shared preferences, databases, external storage, separate cache directories, or other Android-owned locations for application state. Android system-managed files such as the installed APK and Keystore material are platform-managed and are not application data files.
+Derive this root from `Context.noBackupFilesDir` at runtime rather than persisting an absolute path. Android documents this directory as app-private internal storage that is excluded from automatic backup to remote storage. This avoids silently copying the live vault into device/cloud backup; later backup and restore must use the application's explicit encrypted backup format. The encrypted vault, preferences, and app-owned backup files will live below this one directory. Do not use shared preferences, databases, external storage, separate cache directories, or other Android-owned locations for application state. Android system-managed files such as the installed APK and Keystore material are platform-managed and are not application data files.
+
+Reference: [Android `Context.getNoBackupFilesDir()`](https://developer.android.com/reference/android/content/Context#getNoBackupFilesDir()).
 
 The vault file uses the exact same versioned container and account-database format as Linux. No platform-specific plaintext export or alternate Android vault format is permitted.
 
