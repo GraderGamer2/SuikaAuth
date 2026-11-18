@@ -17,6 +17,7 @@ use gtk::{
     ListBoxRow, Orientation, ScrolledWindow, Spinner, Stack,
 };
 use suika_core::accounts::{Account, AccountDatabase, AccountMode};
+use suika_core::base32::decode_base32;
 use suika_core::crypto::KdfParams;
 use suika_core::otp::OtpAlgorithm;
 use suika_core::storage::{StorageError, VaultStore};
@@ -85,7 +86,7 @@ fn build_application(application: &Application) {
     let unlocked_for_shutdown = unlocked.clone();
     application.connect_shutdown(move |_| {
         if let Some(stack) = stack_for_shutdown.upgrade() {
-            clear_secret_entries(&stack);
+            clear_secret_entries(stack.upcast_ref());
         }
         unlocked_for_shutdown.borrow_mut().take();
     });
@@ -709,7 +710,7 @@ fn show_add_account_page(
                 return;
             }
             Err(message) => {
-                status_for_save.set_text(&message);
+                status_for_save.set_text(&message.to_string());
                 return;
             }
         };
@@ -793,74 +794,6 @@ fn persist_vault(vault: &mut AuthenticatedVault, directory: &Path) -> Result<(),
         .map_err(|error| error.to_string())?;
     let store = VaultStore::open(directory).map_err(|error| error.to_string())?;
     store.save(&encrypted).map_err(|error| error.to_string())
-}
-
-fn decode_base32(input: &str) -> Result<Zeroizing<Vec<u8>>, String> {
-    let compact = Zeroizing::new(
-        input
-            .chars()
-            .filter(|character| !character.is_ascii_whitespace() && *character != '-')
-            .collect::<String>(),
-    );
-
-    if compact.is_empty() {
-        return Err("Enter a Base32 secret.".to_owned());
-    }
-
-    let first_padding = compact.find('=').unwrap_or(compact.len());
-    let data = &compact[..first_padding];
-    let padding = &compact[first_padding..];
-
-    if padding.chars().any(|character| character != '=') {
-        return Err("The Base32 secret contains invalid padding.".to_owned());
-    }
-    if data.is_empty() || data.len() > 206 {
-        return Err("The Base32 secret has an unsupported length.".to_owned());
-    }
-
-    let expected_padding = match data.len() % 8 {
-        0 => 0,
-        2 => 6,
-        4 => 4,
-        5 => 3,
-        7 => 1,
-        _ => return Err("The Base32 secret has an invalid length.".to_owned()),
-    };
-    if !padding.is_empty()
-        && (!compact.len().is_multiple_of(8) || padding.len() != expected_padding)
-    {
-        return Err("The Base32 secret has invalid padding.".to_owned());
-    }
-
-    let mut output = Zeroizing::new(Vec::with_capacity(data.len() * 5 / 8));
-    let mut accumulator = 0_u32;
-    let mut bits = 0_u8;
-
-    for character in data.chars() {
-        let value = match character.to_ascii_uppercase() {
-            'A'..='Z' => character.to_ascii_uppercase() as u8 - b'A',
-            '2'..='7' => character as u8 - b'2' + 26,
-            _ => return Err("The Base32 secret contains an invalid character.".to_owned()),
-        };
-
-        accumulator = (accumulator << 5) | u32::from(value);
-        bits += 5;
-
-        if bits >= 8 {
-            bits -= 8;
-            output.push(((accumulator >> bits) & 0xFF) as u8);
-            accumulator &= (1_u32 << bits) - 1;
-        }
-    }
-
-    if bits > 0 && accumulator != 0 {
-        return Err("The Base32 secret has non-zero unused trailing bits.".to_owned());
-    }
-    if output.is_empty() || output.len() > 128 {
-        return Err("The decoded Base32 secret must be 1 to 128 bytes.".to_owned());
-    }
-
-    Ok(output)
 }
 
 fn advance_hotp_and_persist(
@@ -1116,7 +1049,7 @@ fn show_edit_account_page(
                     return;
                 }
                 Err(message) => {
-                    status_for_save.set_text(&message);
+                    status_for_save.set_text(&message.to_string());
                     return;
                 }
             }

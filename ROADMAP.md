@@ -22,6 +22,7 @@ Status: **Milestone 4 — Linux native frontend**
 - [x] Add key redaction and zeroization wrappers.
 - [x] Implement HOTP and TOTP using HMAC-SHA-1, SHA-256, and SHA-512.
 - [x] Add RFC 4226 and RFC 6238 test vectors.
+- [x] Add bounded RFC 4648 Base32 decoding with zeroizing input and output buffers.
 - [x] Run formatting, tests, and static analysis on CI and correct all findings.
 - [ ] Benchmark the production 128 MiB Argon2id profile on Linux and Android hardware.
 - [x] Review the core API and cryptographic dependency feature tree in CI.

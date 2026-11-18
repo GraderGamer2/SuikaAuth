@@ -4,6 +4,9 @@ All notable project changes will be recorded here.
 
 ## Unreleased
 
+- Moved RFC 4648 Base32 decoding into the shared Rust core with bounded input/output, strict padding and trailing-bit checks, and zeroizing buffers; Linux add/edit enrollment now uses the shared decoder.
+- Fixed shutdown cleanup's GTK widget upcast so the Linux workspace compiles before tests, Clippy, dependency inspection, and release linking.
+
 - Added a five-minute inactivity lock driven by captured pointer, click, keyboard, and scroll activity across the GTK window.
 - Centralized explicit and automatic locking so the unlocked vault session is dropped and add/edit/account pages are detached.
 - Clear secret entry values on lock, window close, and application shutdown; drop the unlocked session on both window close and the application shutdown signal.

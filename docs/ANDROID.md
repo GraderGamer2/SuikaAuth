@@ -36,6 +36,8 @@ The JNI bridge exposes a narrow API for:
 
 The bridge must not return raw OTP secrets or the decrypted account-database blob to Kotlin. It returns only display metadata and the code required by the current view. The Rust side retains the unlocked `VaultSession` and account database while the application is unlocked.
 
+When the Android UI accepts an encoded Base32 secret, the JNI bridge should call `suika_core::base32::decode_base32` rather than reimplementing RFC 4648 decoding in Kotlin. Pass the returned zeroizing byte buffer directly into account creation or update; do not retain a second long-lived secret copy in the UI layer.
+
 Use an opaque native session handle with validation on every operation. A lock operation invalidates the handle and drops the Rust session. Do not expose Rust object pointers directly as unvalidated Kotlin `Long` values.
 
 Argon2id and other blocking cryptographic/file operations must run on a Kotlin worker executor, not the Android main thread. Surface results to the UI thread only after the native operation completes. Passwords and replacement secrets should cross JNI in byte arrays, be wrapped in Rust zeroizing buffers immediately, and have the Kotlin byte arrays cleared in a `finally` block.

@@ -62,6 +62,10 @@ HOTP/TOTP uses HMAC-SHA-1, HMAC-SHA-256, or HMAC-SHA-512 as selected by the acco
 
 The OTP implementation must pass RFC 4226 and RFC 6238 test vectors, including the SHA-1, SHA-256, and SHA-512 cases.
 
+## Base32 enrollment input
+
+The shared core provides a bounded RFC 4648 Base32 decoder for manually entered OTP secrets. It accepts lowercase characters and common ASCII whitespace or hyphen separators, permits either canonical padding or no padding, and rejects malformed padding, invalid alphabet characters, and non-zero unused trailing bits. The raw input limit is 1 KiB and decoded output is limited to 1–128 bytes. The normalized encoded string and decoded output use zeroizing buffers. Platform frontends should call this shared implementation rather than maintaining separate decoders.
+
 ## Memory handling
 
 - SecretKey does not implement Clone and redacts its Debug output.
