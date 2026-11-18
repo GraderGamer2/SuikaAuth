@@ -193,10 +193,37 @@ mod tests {
     }
 
     #[test]
+    fn derives_with_the_selected_production_profile() {
+        let salt = [0xC3; SALT_BYTES];
+        let key = derive_wrapping_key(
+            b"production-profile test password",
+            &salt,
+            KdfParams::PRODUCTION,
+        )
+        .expect("production Argon2id profile should derive a key");
+
+        assert_ne!(key.expose(), &[0_u8; KEY_BYTES]);
+    }
+
+    #[test]
     fn rejects_an_empty_password() {
         assert_eq!(
             derive_wrapping_key(b"", &[0_u8; SALT_BYTES], KdfParams::PRODUCTION).err(),
             Some(CryptoError::EmptyPassword)
+        );
+    }
+
+    #[test]
+    fn rejects_oversized_passwords() {
+        let password = vec![b'x'; MAX_PASSWORD_BYTES + 1];
+        assert_eq!(
+            derive_wrapping_key(
+                &password,
+                &[0_u8; SALT_BYTES],
+                KdfParams::PRODUCTION
+            )
+            .err(),
+            Some(CryptoError::PasswordTooLong)
         );
     }
 
