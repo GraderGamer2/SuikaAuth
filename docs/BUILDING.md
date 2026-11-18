@@ -28,7 +28,7 @@ Triggers include relevant source pushes to main, pull requests, and manual runs.
 
 ## Artifact names and retention
 
-- suika-authenticator-linux-x86_64
+- suika-authenticator-linux-x86_64 (includes the exact generated Cargo.lock used for that build)
 - suika-authenticator-android-debug
 
 Both artifacts use retention-days: 1. GitHub deletes them after one day. This is artifact retention, not a permanent release asset.

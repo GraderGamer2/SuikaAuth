@@ -109,6 +109,7 @@ jobs:
         shell: bash
         run: |
           install -D -m 0755 target/release/suika-authenticator dist/suika-authenticator
+          install -D -m 0644 Cargo.lock dist/Cargo.lock
           cat > dist/BUILD-INFO.txt <<EOF
           SuikaAuthenticator Linux x86_64 build
           Target: x86_64-unknown-linux-gnu
