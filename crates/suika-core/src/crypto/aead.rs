@@ -99,7 +99,7 @@ pub fn decrypt(
 
     let plaintext = cipher
         .decrypt(
-            nonce,
+            &nonce,
             Payload {
                 msg: payload.ciphertext.as_ref(),
                 aad: associated_data,
