@@ -212,8 +212,8 @@ fn show_auth_page(
     page.append(&description);
     page.append(&card);
 
-    let stack_for_action = stack.clone();
-    let window_for_action = window.clone();
+    let stack_weak = stack.downgrade();
+    let window_weak = window.downgrade();
     let directory_for_worker = directory.clone();
     let directory_for_home = directory.clone();
     let unlocked_for_action = unlocked.clone();
@@ -222,12 +222,20 @@ fn show_auth_page(
     let status_for_action = status.clone();
     let spinner_row_for_action = spinner_row.clone();
     let spinner_for_action = spinner.clone();
-    let action_for_action = action.clone();
+    let progress_for_action = progress.clone();
 
-    action.connect_clicked(move |_| {
+    action.connect_clicked(move |button| {
         let password_text = password_for_action.text().to_string();
         password_for_action.set_text("");
         let password_bytes = Zeroizing::new(password_text.into_bytes());
+
+        let confirmation = if matches!(mode, AuthMode::Create) {
+            let confirmation_text = confirm_for_action.text().to_string();
+            confirm_for_action.set_text("");
+            Some(Zeroizing::new(confirmation_text.into_bytes()))
+        } else {
+            None
+        };
 
         if password_bytes.is_empty() {
             status_for_action.set_text("Enter your master password.");
@@ -237,37 +245,34 @@ fn show_auth_page(
             status_for_action.set_text("The password is longer than the supported 1024-byte limit.");
             return;
         }
-
-        if matches!(mode, AuthMode::Create) {
-            let confirmation_text = confirm_for_action.text().to_string();
-            confirm_for_action.set_text("");
-            let confirmation = Zeroizing::new(confirmation_text.into_bytes());
-            if password_bytes.as_slice() != confirmation.as_slice() {
-                status_for_action.set_text("The passwords do not match. Enter them again.");
-                return;
-            }
+        if confirmation
+            .as_ref()
+            .is_some_and(|value| password_bytes.as_slice() != value.as_slice())
+        {
+            status_for_action.set_text("The passwords do not match. Enter them again.");
+            return;
         }
 
         status_for_action.set_text("");
         status_for_action.remove_css_class("error");
         spinner_row_for_action.set_visible(true);
         spinner_for_action.start();
-        progress.set_text(match mode {
+        progress_for_action.set_text(match mode {
             AuthMode::Create => "Deriving key and creating vault…",
             AuthMode::Unlock => "Deriving key and checking vault…",
         });
-        action_for_action.set_sensitive(false);
+        button.set_sensitive(false);
         password_for_action.set_sensitive(false);
         confirm_for_action.set_sensitive(false);
 
-        let stack = stack_for_action.clone();
-        let window = window_for_action.clone();
+        let action_weak = button.downgrade();
+        let stack_weak = stack_weak.clone();
+        let window_weak = window_weak.clone();
         let directory = directory_for_home.clone();
         let unlocked = unlocked_for_action.clone();
         let status = status_for_action.clone();
         let spinner_row = spinner_row_for_action.clone();
         let spinner = spinner_for_action.clone();
-        let action = action_for_action.clone();
         let password_entry = password_for_action.clone();
         let confirm_entry = confirm_for_action.clone();
 
@@ -278,14 +283,20 @@ fn show_auth_page(
             move |result| {
                 spinner.stop();
                 spinner_row.set_visible(false);
-                action.set_sensitive(true);
+                if let Some(action) = action_weak.upgrade() {
+                    action.set_sensitive(true);
+                }
                 password_entry.set_sensitive(true);
                 confirm_entry.set_sensitive(true);
 
                 match result {
                     Ok(authenticated) => {
                         *unlocked.borrow_mut() = Some(authenticated);
-                        show_accounts_page(&stack, &window, directory, unlocked);
+                        if let (Some(stack), Some(window)) =
+                            (stack_weak.upgrade(), window_weak.upgrade())
+                        {
+                            show_accounts_page(&stack, &window, directory, unlocked);
+                        }
                     }
                     Err(message) => {
                         status.add_css_class("error");
@@ -296,9 +307,11 @@ fn show_auth_page(
         );
     });
 
-    password.connect_activate({
-        let action = action.clone();
-        move |_| action.emit_clicked()
+    let action_weak = action.downgrade();
+    password.connect_activate(move |_| {
+        if let Some(action) = action_weak.upgrade() {
+            action.emit_clicked();
+        }
     });
 
     replace_page(stack, "auth", &page);
@@ -308,7 +321,7 @@ fn replace_page(stack: &Stack, name: &str, page: &impl IsA<gtk::Widget>) {
     if let Some(existing) = stack.child_by_name(name) {
         stack.remove(&existing);
     }
-    stack.add_named(page, Some(name));
+    stack.add_named(page, name);
     stack.set_visible_child_name(name);
 }
 
@@ -503,7 +516,7 @@ fn show_accounts_page(
                 ));
                 code.set_xalign(0.0);
                 code.set_selectable(true);
-                code.set_monospace(true);
+                code.add_css_class("monospace");
                 code.add_css_class("title-2");
 
                 let countdown = Label::new(None);
@@ -555,19 +568,23 @@ fn show_accounts_page(
     footer.add_css_class("dim-label");
     page.append(&footer);
 
-    let stack_for_lock = stack.clone();
-    let window_for_lock = window.clone();
+    let stack_for_lock = stack.downgrade();
+    let window_for_lock = window.downgrade();
     let directory_for_lock = directory.clone();
     let unlocked_for_lock = unlocked.clone();
     lock.connect_clicked(move |_| {
         unlocked_for_lock.borrow_mut().take();
-        show_auth_page(
-            &stack_for_lock,
-            &window_for_lock,
-            directory_for_lock.clone(),
-            AuthMode::Unlock,
-            unlocked_for_lock.clone(),
-        );
+        if let (Some(stack), Some(window)) =
+            (stack_for_lock.upgrade(), window_for_lock.upgrade())
+        {
+            show_auth_page(
+                &stack,
+                &window,
+                directory_for_lock.clone(),
+                AuthMode::Unlock,
+                unlocked_for_lock.clone(),
+            );
+        }
     });
 
     if !row_widgets.is_empty() {
