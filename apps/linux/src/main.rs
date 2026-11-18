@@ -671,7 +671,9 @@ fn decode_base32(input: &str) -> Result<Zeroizing<Vec<u8>>, String> {
         7 => 1,
         _ => return Err("The Base32 secret has an invalid length.".to_owned()),
     };
-    if !padding.is_empty() && (!compact.len().is_multiple_of(8) || padding.len() != expected_padding) {
+    if !padding.is_empty()
+        && (!compact.len().is_multiple_of(8) || padding.len() != expected_padding)
+    {
         return Err("The Base32 secret has invalid padding.".to_owned());
     }
 
@@ -877,8 +879,18 @@ fn show_accounts_page(
     let directory_for_lock = directory.clone();
     let unlocked_for_lock = unlocked.clone();
     lock.connect_clicked(move |_| {
+        // Drop the decrypted session first, then detach the old account page
+        // so its code labels cannot remain hidden in the GTK stack.
         unlocked_for_lock.borrow_mut().take();
+
         if let (Some(stack), Some(window)) = (stack_for_lock.upgrade(), window_for_lock.upgrade()) {
+            if let Some(account_page) = stack.child_by_name("accounts") {
+                stack.remove(&account_page);
+            }
+            if let Some(enrollment_page) = stack.child_by_name("add-account") {
+                stack.remove(&enrollment_page);
+            }
+
             show_auth_page(
                 &stack,
                 &window,
