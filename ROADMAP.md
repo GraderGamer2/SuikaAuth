@@ -40,10 +40,11 @@ Status: **Milestone 4 — Linux native frontend**
 
 ## 4. Linux application
 
-- [ ] Add the native GTK4 Linux frontend.
-- [ ] Create and manage ~/.SuikaAuthenticator/ with restrictive permissions.
-- [ ] Add first-run vault creation and password unlocking.
-- [ ] Add account list, code display, countdown, copy, search, and account management.
+- [x] Add the initial native GTK4 Linux frontend.
+- [x] Create and manage ~/.SuikaAuthenticator/ with restrictive permissions through the shared vault store.
+- [x] Add first-run vault creation and password unlocking.
+- [x] Add account list, code display, countdown, and click-to-copy.
+- [ ] Add search and account management.
 - [ ] Add lock-on-inactivity and secure process shutdown.
 - [ ] Build an optimized x86-64 release executable and document system runtime dependencies.
 

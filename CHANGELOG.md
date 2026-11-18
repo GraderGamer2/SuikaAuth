@@ -4,6 +4,11 @@ All notable project changes will be recorded here.
 
 ## Unreleased
 
+- Added the initial native GTK4 Linux frontend with first-run vault creation and password unlocking.
+- Added an unlocked account overview with live TOTP refresh, HOTP counter display, click-to-copy OTP values, and explicit locking.
+- Added create-only vault storage so a first-run race cannot replace an existing vault.
+- Added Vault::create_session to reuse the first-run key derivation and enter the unlocked session without a second Argon2id pass.
+
 - Added the dependency-free vault file store using caller-supplied application-owned directories, bounded reads, restrictive Unix permissions, temporary-file cleanup, and atomic replacement.
 - Added storage tests for encrypted-vault round trips, replacement, invalid-input preservation, directory permissions, relative paths, and symlink rejection.
 - Added failure-injection coverage for an interrupted save before rename and restart behavior with a leftover partial temporary file.

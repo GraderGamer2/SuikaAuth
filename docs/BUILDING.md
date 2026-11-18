@@ -1,6 +1,6 @@
 # Building and downloading SuikaAuthenticator
 
-## Current Rust core
+## Current Rust core and Linux frontend
 
 The repository contains a Rust workspace with the shared suika-core library. It includes TOTP/HOTP primitives, zeroizing account records and serialization, Argon2id key derivation, XChaCha20-Poly1305, versioned encrypted vaults, and atomic app-directory vault file storage. The core CI validation currently passes 36 tests, formatting, strict Clippy, and dependency feature inspection:
 
@@ -15,7 +15,7 @@ A reviewed Cargo.lock is still required before the first public application buil
 
 - Cargo.toml: root Rust workspace manifest.
 - crates/suika-core/: shared OTP, account database, vault cryptography, and encrypted-vault file storage.
-- apps/linux/: future native GTK4 Linux application.
+- apps/linux/: native GTK4 Linux application.
 - android/: future native Kotlin application and checked-in Gradle wrapper.
 
 The Linux package will produce the suika-authenticator executable. The Android Gradle project will produce a debug APK.

@@ -56,6 +56,12 @@ jobs:
             echo "::notice::Linux executable build skipped: apps/linux/Cargo.toml has not been added yet."
           fi
 
+      - name: Install GTK4 build dependencies
+        if: steps.detect.outputs.linux_app_ready == 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes libgtk-4-dev pkg-config
+
       - name: Set up Rust
         if: steps.detect.outputs.core_ready == 'true'
         uses: actions-rust-lang/setup-rust-toolchain@a188e68d0fd2bd36ad51dccb2b07ba6e75105f30 # setup-rust-toolchain v2.0.1
@@ -79,12 +85,6 @@ jobs:
       - name: Audit dependency feature tree
         if: steps.detect.outputs.core_ready == 'true'
         run: cargo tree --workspace -e features
-
-      - name: Install GTK4 build dependencies
-        if: steps.detect.outputs.linux_app_ready == 'true'
-        run: |
-          sudo apt-get update
-          sudo apt-get install --no-install-recommends --yes libgtk-4-dev pkg-config
 
       - name: Build optimized Linux executable
         if: steps.detect.outputs.linux_app_ready == 'true'

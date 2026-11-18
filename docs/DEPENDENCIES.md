@@ -13,6 +13,7 @@ SuikaAuthenticator keeps the shared security core small and platform-independent
 | sha1 | 0.11.0 | HMAC-SHA-1 compatibility |
 | sha2 | 0.11.1 | HMAC-SHA-256 and HMAC-SHA-512 |
 | zeroize | 1.9.0 | Clear sensitive buffers |
+| gtk4 | 0.11.5 | Native GTK4 Linux interface (frontend only) |
 
 All listed cryptographic implementations are pure Rust. The direct versions are exact-pinned in the workspace manifest. A reviewed Cargo.lock must be committed before the first public application build so transitive dependency resolution is reproducible.
 
@@ -32,4 +33,4 @@ A dependency may be added only when it provides concrete functionality that cann
 
 ## Platform-only dependencies
 
-GTK and its system libraries belong only to the Linux frontend. Kotlin/Android SDK dependencies belong only to the Android frontend. Neither platform UI stack may become a dependency of the shared Rust core.
+GTK4 0.11.5 is an exact-pinned Linux-only Rust binding and belongs only to the frontend; it is not linked into suika-core. Its documented minimum supported Rust version is below this workspace's Rust 1.88 baseline. GTK and its system libraries belong only to the Linux frontend. Kotlin/Android SDK dependencies belong only to the Android frontend. Neither platform UI stack may become a dependency of the shared Rust core.

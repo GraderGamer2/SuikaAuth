@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/suika-core"]
+members = ["crates/suika-core", "apps/linux"]
 resolver = "3"
 
 [workspace.package]

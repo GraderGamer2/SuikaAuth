@@ -1,0 +1,15 @@
+[package]
+name = "suika-authenticator-linux"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[[bin]]
+name = "suika-authenticator"
+path = "src/main.rs"
+
+[dependencies]
+gtk = { package = "gtk4", version = "=0.11.5", default-features = false }
+suika-core = { path = "../../crates/suika-core" }
+zeroize.workspace = true

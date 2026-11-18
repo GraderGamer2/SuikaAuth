@@ -32,7 +32,7 @@ Do not scatter application data across XDG configuration, data, or cache directo
 
 ## Development status
 
-See ROADMAP.md for the authoritative implementation sequence and current milestone. The shared Rust core now includes RFC-tested TOTP/HOTP generation, an Argon2id/XChaCha20 encrypted vault, a compact versioned account database, and atomic app-directory vault storage. Its latest CI run passed 36 tests, formatting, strict Clippy, and dependency-feature inspection. The next implementation milestone is the native Linux interface; Android follows with the same Rust core.
+See ROADMAP.md for the authoritative implementation sequence and current milestone. The shared Rust core includes RFC-tested TOTP/HOTP generation, an Argon2id/XChaCha20 encrypted vault, a compact versioned account database, and atomic app-directory vault storage. The initial GTK4 Linux frontend supports first-run vault creation, password unlock, live OTP display, click-to-copy, and explicit locking. Manual enrollment and account management are the next Linux tasks.
 
 ## CI downloads
 
