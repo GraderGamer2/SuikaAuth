@@ -1077,7 +1077,7 @@ fn confirm_remove_account(
     let window_weak = window.downgrade();
     let directory_for_remove = directory.clone();
     let unlocked_for_remove = unlocked.clone();
-    alert.choose(Some(window), None, move |response| {
+    alert.choose(Some(window), None::<&gtk::gio::Cancellable>, move |response| {
         if !matches!(response, Ok(1)) {
             return;
         }
