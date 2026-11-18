@@ -628,10 +628,7 @@ fn show_add_account_page(
 }
 
 fn persist_vault(vault: &mut AuthenticatedVault, directory: &Path) -> Result<(), String> {
-    let plaintext = vault
-        .accounts
-        .encode()
-        .map_err(|error| error.to_string())?;
+    let plaintext = vault.accounts.encode().map_err(|error| error.to_string())?;
     vault
         .session
         .replace_plaintext(plaintext)
@@ -674,9 +671,7 @@ fn decode_base32(input: &str) -> Result<Zeroizing<Vec<u8>>, String> {
         7 => 1,
         _ => return Err("The Base32 secret has an invalid length.".to_owned()),
     };
-    if !padding.is_empty()
-        && (compact.len() % 8 != 0 || padding.len() != expected_padding)
-    {
+    if !padding.is_empty() && (compact.len() % 8 != 0 || padding.len() != expected_padding) {
         return Err("The Base32 secret has invalid padding.".to_owned());
     }
 
@@ -746,9 +741,7 @@ fn show_accounts_page(
     let directory_for_add = directory.clone();
     let unlocked_for_add = unlocked.clone();
     add.connect_clicked(move |_| {
-        if let (Some(stack), Some(window)) =
-            (stack_for_add.upgrade(), window_for_add.upgrade())
-        {
+        if let (Some(stack), Some(window)) = (stack_for_add.upgrade(), window_for_add.upgrade()) {
             show_add_account_page(
                 &stack,
                 &window,
@@ -943,15 +936,16 @@ mod tests {
 
     #[test]
     fn base32_decodes_rfc4648_vectors() {
-        assert_eq!(decode_base32("MY======").expect("valid Base32").as_slice(), b"f");
+        assert_eq!(
+            decode_base32("MY======").expect("valid Base32").as_slice(),
+            b"f"
+        );
         assert_eq!(
             decode_base32("MZXQ====").expect("valid Base32").as_slice(),
             b"fo"
         );
         assert_eq!(
-            decode_base32("MZXW6===")
-                .expect("valid Base32")
-                .as_slice(),
+            decode_base32("MZXW6===").expect("valid Base32").as_slice(),
             b"foo"
         );
         assert_eq!(

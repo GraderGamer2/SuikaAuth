@@ -471,8 +471,8 @@ mod tests {
             .expect("unlocked session should seal without password input");
 
         assert_ne!(saved, original);
-        let reopened =
-            Vault::unlock(&saved, password).expect("saved vault should unlock with original password");
+        let reopened = Vault::unlock(&saved, password)
+            .expect("saved vault should unlock with original password");
         assert_eq!(reopened.plaintext(), b"updated database");
     }
 
