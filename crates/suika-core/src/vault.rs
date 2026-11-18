@@ -93,13 +93,27 @@ impl Vault {
         password: &[u8],
         params: KdfParams,
     ) -> Result<Vec<u8>, VaultError> {
+        let (serialized, _session) = Self::create_session(plaintext, password, params)?;
+        Ok(serialized)
+    }
+
+    /// Create a new vault and retain its unlocked session.
+    ///
+    /// This lets a first-run frontend proceed directly to the account screen
+    /// without immediately repeating the expensive Argon2id derivation.
+    pub fn create_session(
+        plaintext: &[u8],
+        password: &[u8],
+        params: KdfParams,
+    ) -> Result<(Vec<u8>, VaultSession), VaultError> {
         validate_payload_size(plaintext.len())?;
         let data_key = SecretKey::generate()?;
         let session = VaultSession {
             data_key,
             plaintext: Zeroizing::new(plaintext.to_vec()),
         };
-        session.seal(password, params)
+        let serialized = session.seal(password, params)?;
+        Ok((serialized, session))
     }
 
     /// Validate the public container structure without decrypting it.
@@ -388,6 +402,20 @@ mod tests {
 
         assert_eq!(session.plaintext(), plaintext);
         assert_eq!(&serialized[..8], VAULT_MAGIC);
+    }
+
+    #[test]
+    fn create_session_retains_the_decrypted_payload() {
+        let plaintext = b"new account database";
+        let password = b"first-run password";
+        let (serialized, created_session) =
+            Vault::create_session(plaintext, password, test_params())
+                .expect("vault and session should be created");
+
+        assert_eq!(created_session.plaintext(), plaintext);
+        let reopened =
+            Vault::unlock(&serialized, password).expect("created vault should unlock");
+        assert_eq!(reopened.plaintext(), plaintext);
     }
 
     #[test]

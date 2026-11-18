@@ -28,6 +28,8 @@ pub enum StorageError {
     InvalidVaultFile,
     /// The file exceeds the configured maximum size.
     VaultTooLarge,
+    /// A vault already exists when creating a first-run vault.
+    VaultAlreadyExists,
     /// The OS random source could not generate a temporary filename.
     RandomnessUnavailable,
     /// A storage operation failed.
@@ -46,6 +48,7 @@ impl core::fmt::Display for StorageError {
             Self::VaultNotFound => f.write_str("encrypted vault file does not exist"),
             Self::InvalidVaultFile => f.write_str("encrypted vault file is malformed"),
             Self::VaultTooLarge => f.write_str("encrypted vault exceeds the supported size"),
+            Self::VaultAlreadyExists => f.write_str("an encrypted vault already exists"),
             Self::RandomnessUnavailable => {
                 f.write_str("operating-system randomness is unavailable")
             }
@@ -154,6 +157,37 @@ impl VaultStore {
         validate_vault_bytes(&bytes)?;
 
         Ok(bytes)
+    }
+
+    /// Create the first encrypted vault without replacing an existing one.
+    ///
+    /// A complete temporary file is written and synced before a same-directory
+    /// hard link publishes it at `vault.bin`. The link operation fails if that
+    /// destination already exists, preventing a first-run race from replacing
+    /// a vault created by another application instance.
+    pub fn save_new(&self, encrypted_vault: &[u8]) -> Result<(), StorageError> {
+        validate_vault_bytes(encrypted_vault)?;
+
+        let (temporary_path, mut temporary_file) = self.create_temporary_file()?;
+        let mut cleanup = PendingFile::new(temporary_path);
+
+        temporary_file.write_all(encrypted_vault)?;
+        temporary_file.sync_all()?;
+        drop(temporary_file);
+
+        match fs::hard_link(cleanup.path(), &self.vault_path) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                return Err(StorageError::VaultAlreadyExists);
+            }
+            Err(error) => return Err(StorageError::Io(error)),
+        }
+
+        fs::remove_file(cleanup.path())?;
+        cleanup.commit();
+        File::open(&self.directory)?.sync_all()?;
+
+        Ok(())
     }
 
     /// Atomically replace the encrypted vault file.
@@ -435,6 +469,22 @@ mod tests {
                 0o600
             );
         }
+    }
+
+    #[test]
+    fn save_new_never_replaces_an_existing_vault() {
+        let temporary = TestDirectory::new();
+        let store = VaultStore::open(temporary.0.join(".SuikaAuthenticator"))
+            .expect("app directory should open");
+        let original = test_vault(b"first vault", b"password");
+        let second = test_vault(b"second vault", b"password");
+
+        store.save_new(&original).expect("initial vault should be created");
+        assert!(matches!(
+            store.save_new(&second),
+            Err(StorageError::VaultAlreadyExists)
+        ));
+        assert_eq!(store.load().expect("original vault remains"), original);
     }
 
     #[test]
