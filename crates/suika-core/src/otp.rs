@@ -45,11 +45,7 @@ impl fmt::Display for OtpError {
 
 impl std::error::Error for OtpError {}
 
-fn compute_hmac(
-    secret: &[u8],
-    counter: u64,
-    algorithm: OtpAlgorithm,
-) -> Result<Vec<u8>, OtpError> {
+fn compute_hmac(secret: &[u8], counter: u64, algorithm: OtpAlgorithm) -> Result<Vec<u8>, OtpError> {
     let message = counter.to_be_bytes();
 
     let digest = match algorithm {

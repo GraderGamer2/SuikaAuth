@@ -28,10 +28,7 @@ impl EncryptedPayload {
     ///
     /// This checks only the minimum ciphertext length. Authentication is
     /// performed by decrypt before plaintext is returned.
-    pub fn from_parts(
-        nonce: [u8; NONCE_BYTES],
-        ciphertext: Vec<u8>,
-    ) -> Result<Self, CryptoError> {
+    pub fn from_parts(nonce: [u8; NONCE_BYTES], ciphertext: Vec<u8>) -> Result<Self, CryptoError> {
         if ciphertext.len() < TAG_BYTES {
             return Err(CryptoError::InvalidCiphertext);
         }
