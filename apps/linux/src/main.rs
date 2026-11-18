@@ -807,8 +807,14 @@ fn show_edit_account_page(
                 })
         })
     };
-    let Some((issuer_value, label_value, algorithm_value, digits_value, mode_value, parameter_value)) =
-        snapshot
+    let Some((
+        issuer_value,
+        label_value,
+        algorithm_value,
+        digits_value,
+        mode_value,
+        parameter_value,
+    )) = snapshot
     else {
         show_message_dialog(
             window,

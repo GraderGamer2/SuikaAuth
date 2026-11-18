@@ -737,7 +737,10 @@ mod tests {
         assert!(account.is_favorite());
         assert_eq!(account.algorithm(), OtpAlgorithm::Sha256);
         assert_eq!(account.digits(), 8);
-        assert_ne!(account.generate_code(59).expect("updated code"), original_code);
+        assert_ne!(
+            account.generate_code(59).expect("updated code"),
+            original_code
+        );
 
         let updated_code = account.generate_code(59).expect("updated code");
         account
@@ -784,7 +787,10 @@ mod tests {
         );
         assert_eq!(account.issuer(), "Issuer");
         assert_eq!(account.label(), "label");
-        assert_eq!(account.generate_code(59).expect("original code"), original_code);
+        assert_eq!(
+            account.generate_code(59).expect("original code"),
+            original_code
+        );
     }
 
     #[test]
