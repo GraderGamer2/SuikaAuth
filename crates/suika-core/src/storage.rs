@@ -138,8 +138,8 @@ impl VaultStore {
         ensure_same_file(&path_metadata, &opened_metadata)?;
 
         restrict_open_file_permissions(&file)?;
-        let file_len = usize::try_from(opened_metadata.len())
-            .map_err(|_| StorageError::VaultTooLarge)?;
+        let file_len =
+            usize::try_from(opened_metadata.len()).map_err(|_| StorageError::VaultTooLarge)?;
         validate_vault_size(file_len)?;
 
         let mut bytes = Vec::with_capacity(file_len);
@@ -400,8 +400,8 @@ mod tests {
         let loaded = store.load().expect("vault should load");
         assert_eq!(loaded, serialized);
 
-        let unlocked = Vault::unlock(&loaded, b"test password")
-            .expect("loaded vault should unlock");
+        let unlocked =
+            Vault::unlock(&loaded, b"test password").expect("loaded vault should unlock");
         assert_eq!(unlocked.plaintext(), b"account database");
 
         #[cfg(unix)]
@@ -427,7 +427,9 @@ mod tests {
         let replacement = test_vault(b"replacement", b"password");
 
         store.save(&original).expect("original vault should save");
-        store.save(&replacement).expect("replacement vault should save");
+        store
+            .save(&replacement)
+            .expect("replacement vault should save");
 
         let loaded = store.load().expect("replacement should load");
         assert_eq!(
