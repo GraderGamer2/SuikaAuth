@@ -207,15 +207,25 @@ impl VaultSession {
         self.seal_with_material(&self.wrapping_key, &self.salt, self.params)
     }
 
-    /// Encrypt the current session under a new master password.
+    /// Change the master password used by this unlocked session.
     ///
-    /// A fresh salt and wrapping key are derived for the supplied password.
-    /// This returns a new serialized vault; it does not mutate this in-memory
-    /// session's existing unlock credentials.
-    pub fn seal(&self, password: &[u8], params: KdfParams) -> Result<Vec<u8>, VaultError> {
+    /// The new salt and wrapping key are installed only after the new vault
+    /// has been successfully encrypted. Subsequent calls to `seal_current`
+    /// therefore continue using the new password.
+    pub fn change_password(
+        &mut self,
+        password: &[u8],
+        params: KdfParams,
+    ) -> Result<Vec<u8>, VaultError> {
         let salt = generate_salt()?;
         let wrapping_key = derive_wrapping_key(password, &salt, params)?;
-        self.seal_with_material(&wrapping_key, &salt, params)
+        let serialized = self.seal_with_material(&wrapping_key, &salt, params)?;
+
+        self.wrapping_key = wrapping_key;
+        self.salt = salt;
+        self.params = params;
+
+        Ok(serialized)
     }
 
     fn seal_with_material(
@@ -526,11 +536,11 @@ mod tests {
     fn password_can_be_changed_without_exporting_plaintext() {
         let original = Vault::create(b"account records", b"old password", test_params())
             .expect("vault creation should succeed");
-        let session =
+        let mut session =
             Vault::unlock(&original, b"old password").expect("original unlock should succeed");
 
         let rewrapped = session
-            .seal(b"new password", test_params())
+            .change_password(b"new password", test_params())
             .expect("password change should succeed");
 
         assert_eq!(
@@ -540,6 +550,22 @@ mod tests {
         let reopened =
             Vault::unlock(&rewrapped, b"new password").expect("new password should unlock");
         assert_eq!(reopened.plaintext(), b"account records");
+
+        // A subsequent routine save must not revert to the previous wrapping
+        // key after the password-change operation.
+        let later_save = session
+            .seal_current()
+            .expect("later save should use the new password");
+        assert_eq!(
+            Vault::unlock(&later_save, b"old password").err(),
+            Some(VaultError::UnlockFailed)
+        );
+        assert_eq!(
+            Vault::unlock(&later_save, b"new password")
+                .expect("new password should continue to unlock")
+                .plaintext(),
+            b"account records"
+        );
     }
 
     #[test]
