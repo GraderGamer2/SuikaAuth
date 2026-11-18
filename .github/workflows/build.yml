@@ -81,7 +81,7 @@ jobs:
         shell: bash
         run: |
           install -D -m 0755 target/release/suika-authenticator dist/suika-authenticator
-          cat > dist/BUILD-INFO.txt <<'EOF'
+          cat > dist/BUILD-INFO.txt <<EOF
           SuikaAuthenticator Linux x86_64 build
           Target: x86_64-unknown-linux-gnu
           Build profile: Cargo release
@@ -111,7 +111,7 @@ jobs:
         id: detect
         shell: bash
         run: |
-          if [[ -f android/gradlew && -f android/settings.gradle.kts ]]; then
+          if [[ -f android/gradlew && ( -f android/settings.gradle.kts || -f android/settings.gradle ) ]]; then
             echo "ready=true" >> "$GITHUB_OUTPUT"
           else
             echo "ready=false" >> "$GITHUB_OUTPUT"
