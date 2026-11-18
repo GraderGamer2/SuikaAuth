@@ -322,7 +322,7 @@ fn replace_page(stack: &Stack, name: &str, page: &impl IsA<gtk::Widget>) {
     if let Some(existing) = stack.child_by_name(name) {
         stack.remove(&existing);
     }
-    stack.add_named(page, name);
+    stack.add_named(page, Some(name));
     stack.set_visible_child_name(name);
 }
 
