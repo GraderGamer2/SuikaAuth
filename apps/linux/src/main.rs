@@ -413,7 +413,7 @@ fn authenticate(
                 AccountDatabase::decode(session.plaintext()).map_err(|error| error.to_string())?;
 
             Ok(AuthenticatedVault {
-                _session: session,
+                session,
                 accounts: database,
             })
         }
