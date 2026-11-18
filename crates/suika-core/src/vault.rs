@@ -413,8 +413,7 @@ mod tests {
                 .expect("vault and session should be created");
 
         assert_eq!(created_session.plaintext(), plaintext);
-        let reopened =
-            Vault::unlock(&serialized, password).expect("created vault should unlock");
+        let reopened = Vault::unlock(&serialized, password).expect("created vault should unlock");
         assert_eq!(reopened.plaintext(), plaintext);
     }
 

@@ -479,7 +479,9 @@ mod tests {
         let original = test_vault(b"first vault", b"password");
         let second = test_vault(b"second vault", b"password");
 
-        store.save_new(&original).expect("initial vault should be created");
+        store
+            .save_new(&original)
+            .expect("initial vault should be created");
         assert!(matches!(
             store.save_new(&second),
             Err(StorageError::VaultAlreadyExists)
