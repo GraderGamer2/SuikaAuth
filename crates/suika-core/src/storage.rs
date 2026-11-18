@@ -137,6 +137,7 @@ impl VaultStore {
         validate_file_metadata(&opened_metadata)?;
         ensure_same_file(&path_metadata, &opened_metadata)?;
 
+        restrict_open_file_permissions(&file)?;
         let file_len = usize::try_from(opened_metadata.len())
             .map_err(|_| StorageError::VaultTooLarge)?;
         validate_vault_size(file_len)?;
@@ -304,6 +305,19 @@ fn restrict_directory_permissions(path: &Path) -> Result<(), StorageError> {
 
 #[cfg(not(unix))]
 fn restrict_directory_permissions(_path: &Path) -> Result<(), StorageError> {
+    Ok(())
+}
+
+#[cfg(unix)]
+fn restrict_open_file_permissions(file: &File) -> Result<(), StorageError> {
+    use std::os::unix::fs::PermissionsExt;
+
+    file.set_permissions(fs::Permissions::from_mode(0o600))?;
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn restrict_open_file_permissions(_file: &File) -> Result<(), StorageError> {
     Ok(())
 }
 
