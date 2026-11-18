@@ -1,0 +1,158 @@
+name: Build binaries
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/build.yml"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - "apps/linux/**"
+      - "crates/**"
+      - "android/**"
+  pull_request:
+    paths:
+      - ".github/workflows/build.yml"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - "apps/linux/**"
+      - "crates/**"
+      - "android/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: suika-build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux:
+    name: Linux x86_64
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # actions/checkout v7.0.1
+
+      - name: Detect Linux project
+        id: detect
+        shell: bash
+        run: |
+          if [[ -f Cargo.toml && -f apps/linux/Cargo.toml ]]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Linux build skipped: the Rust workspace or apps/linux/Cargo.toml has not been added yet."
+          fi
+
+      - name: Set up Rust
+        if: steps.detect.outputs.ready == 'true'
+        uses: actions-rust-lang/setup-rust-toolchain@a188e68d0fd2bd36ad51dccb2b07ba6e75105f30 # setup-rust-toolchain v2.0.1
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+          cache: true
+
+      - name: Install GTK4 build dependencies
+        if: steps.detect.outputs.ready == 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes libgtk-4-dev pkg-config
+
+      - name: Check formatting
+        if: steps.detect.outputs.ready == 'true'
+        run: cargo fmt --all -- --check
+
+      - name: Run Rust tests
+        if: steps.detect.outputs.ready == 'true'
+        run: cargo test --workspace --locked
+
+      - name: Build optimized Linux executable
+        if: steps.detect.outputs.ready == 'true'
+        run: cargo build --locked --release --package suika-authenticator-linux --bin suika-authenticator
+
+      - name: Prepare Linux download
+        if: steps.detect.outputs.ready == 'true'
+        shell: bash
+        run: |
+          install -D -m 0755 target/release/suika-authenticator dist/suika-authenticator
+          cat > dist/BUILD-INFO.txt <<'EOF'
+          SuikaAuthenticator Linux x86_64 build
+          Target: x86_64-unknown-linux-gnu
+          Build profile: Cargo release
+          Runtime: GTK4 and the system libraries linked by the executable must be installed.
+          Commit: ${GITHUB_SHA}
+          EOF
+          sha256sum dist/suika-authenticator > dist/SHA256SUMS.txt
+
+      - name: Upload Linux executable (expires after 1 day)
+        if: steps.detect.outputs.ready == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # actions/upload-artifact v7.0.2
+        with:
+          name: suika-authenticator-linux-x86_64
+          path: dist/
+          if-no-files-found: error
+          retention-days: 1
+
+  android:
+    name: Android APK
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # actions/checkout v7.0.1
+
+      - name: Detect Android project
+        id: detect
+        shell: bash
+        run: |
+          if [[ -f android/gradlew && -f android/settings.gradle.kts ]]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Android build skipped: the Android Gradle project and wrapper have not been added yet."
+          fi
+
+      - name: Set up Java
+        if: steps.detect.outputs.ready == 'true'
+        uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # actions/setup-java v6.3.0
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        if: steps.detect.outputs.ready == 'true'
+        uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # android-actions/setup-android v4.0.4
+
+      - name: Set up Gradle
+        if: steps.detect.outputs.ready == 'true'
+        uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # gradle/actions v6.4.1
+
+      - name: Build Android debug APK
+        if: steps.detect.outputs.ready == 'true'
+        shell: bash
+        run: |
+          chmod +x android/gradlew
+          ./android/gradlew --no-daemon --stacktrace -p android assembleDebug
+
+      - name: Prepare Android download
+        if: steps.detect.outputs.ready == 'true'
+        shell: bash
+        run: |
+          install -D -m 0644 android/app/build/outputs/apk/debug/app-debug.apk dist/SuikaAuthenticator-android-debug.apk
+          printf 'SuikaAuthenticator Android debug APK\nCommit: %s\n' "$GITHUB_SHA" > dist/BUILD-INFO.txt
+          sha256sum dist/SuikaAuthenticator-android-debug.apk > dist/SHA256SUMS.txt
+
+      - name: Upload Android APK (expires after 1 day)
+        if: steps.detect.outputs.ready == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # actions/upload-artifact v7.0.2
+        with:
+          name: suika-authenticator-android-debug
+          path: dist/
+          if-no-files-found: error
+          retention-days: 1
