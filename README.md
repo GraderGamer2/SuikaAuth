@@ -36,8 +36,8 @@ GitHub Actions builds the Linux executable and Android debug APK when their resp
 
 To download a build:
 
-1. Open the repository's **Actions** tab.
-2. Open the latest successful **Build binaries** run.
+1. Open the [Build binaries workflow](https://github.com/GraderGamer2/SuikaAuth/actions/workflows/build.yml).
+2. Open the latest successful run.
 3. Download `suika-authenticator-linux-x86_64` or `suika-authenticator-android-debug` from the run's **Artifacts** section.
 
 Artifacts require GitHub access to the repository and automatically expire after 1 day. These are temporary CI builds, not permanent GitHub Releases.
