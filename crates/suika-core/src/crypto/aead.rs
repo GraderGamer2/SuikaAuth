@@ -69,11 +69,11 @@ pub fn encrypt(
 
     let mut nonce_bytes = [0_u8; NONCE_BYTES];
     getrandom::fill(&mut nonce_bytes).map_err(|_| CryptoError::RandomnessUnavailable)?;
-    let nonce = XNonce::from_slice(&nonce_bytes);
+    let nonce = XNonce::try_from(nonce_bytes).map_err(|_| CryptoError::EncryptionFailed)?;
 
     let ciphertext = cipher
         .encrypt(
-            nonce,
+            &nonce,
             Payload {
                 msg: plaintext,
                 aad: associated_data,
@@ -95,7 +95,7 @@ pub fn decrypt(
 ) -> Result<Zeroizing<Vec<u8>>, CryptoError> {
     let cipher = XChaCha20Poly1305::new_from_slice(key.expose())
         .map_err(|_| CryptoError::AuthenticationFailed)?;
-    let nonce = XNonce::from_slice(&payload.nonce);
+    let nonce = XNonce::try_from(payload.nonce).map_err(|_| CryptoError::AuthenticationFailed)?;
 
     let plaintext = cipher
         .decrypt(
