@@ -217,12 +217,7 @@ mod tests {
     fn rejects_oversized_passwords() {
         let password = vec![b'x'; MAX_PASSWORD_BYTES + 1];
         assert_eq!(
-            derive_wrapping_key(
-                &password,
-                &[0_u8; SALT_BYTES],
-                KdfParams::PRODUCTION
-            )
-            .err(),
+            derive_wrapping_key(&password, &[0_u8; SALT_BYTES], KdfParams::PRODUCTION).err(),
             Some(CryptoError::PasswordTooLong)
         );
     }
