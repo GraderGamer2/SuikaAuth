@@ -136,10 +136,10 @@ fn application_directory() -> Result<PathBuf, String> {
 }
 
 fn clear_secret_entries(widget: &gtk::Widget) {
-    if widget.widget_name() == "suika-secret-entry" {
-        if let Ok(entry) = widget.clone().downcast::<Entry>() {
-            entry.set_text("");
-        }
+    if widget.widget_name() == "suika-secret-entry"
+        && let Ok(entry) = widget.clone().downcast::<Entry>()
+    {
+        entry.set_text("");
     }
 
     let mut child = widget.first_child();

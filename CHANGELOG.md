@@ -3,6 +3,7 @@
 All notable project changes will be recorded here.
 
 ## Unreleased
+- Collapsed the GTK secret-entry cleanup condition to satisfy strict Clippy on the stable Rust toolchain without changing traversal or cleanup behavior.
 - Raised the bounded Base32 data-character ceiling to 208 so structurally complete over-sized inputs reach the decoded-byte limit check rather than being misclassified as malformed length.
 
 - Corrected the Base32 separator test vector and refreshed Android platform guidance: AGP 9.4.0 tool versions, built-in Kotlin, and one `noBackupFilesDir` application-data root.
