@@ -4,6 +4,11 @@ All notable project changes will be recorded here.
 
 ## Unreleased
 
+- Retained the password-derived wrapping key only inside the zeroizing unlocked vault session, enabling routine saves without retaining or re-requesting the master password.
+- Added session re-sealing with fresh AEAD nonces and a test proving persisted changes still unlock with the original master password.
+- Added manual TOTP enrollment to the GTK frontend, including Base32 decoding, input validation, algorithm/digits/period configuration, and encrypted vault persistence.
+- Added Base32 RFC 4648 decoding tests covering valid vectors, lowercase/spacing, invalid symbols, bad padding, and unused trailing bits.
+
 - Added the initial native GTK4 Linux frontend with first-run vault creation and password unlocking.
 - Added an unlocked account overview with live TOTP refresh, HOTP counter display, click-to-copy OTP values, and explicit locking.
 - Added create-only vault storage so a first-run race cannot replace an existing vault.

@@ -16,8 +16,9 @@ use gtk::{
     Align, Application, ApplicationWindow, Box as GtkBox, Button, Entry, Label, ListBox,
     ListBoxRow, Orientation, ScrolledWindow, Spinner, Stack,
 };
-use suika_core::accounts::{AccountDatabase, AccountMode};
+use suika_core::accounts::{Account, AccountDatabase, AccountMode};
 use suika_core::crypto::KdfParams;
+use suika_core::otp::OtpAlgorithm;
 use suika_core::storage::{StorageError, VaultStore};
 use suika_core::vault::{Vault, VaultError, VaultSession};
 use zeroize::Zeroizing;
@@ -28,7 +29,7 @@ const DATA_DIRECTORY: &str = ".SuikaAuthenticator";
 struct AuthenticatedVault {
     // Kept alive for the complete unlocked session. Dropping this clears the
     // decrypted account database and the in-memory data-encryption key.
-    _session: VaultSession,
+    session: VaultSession,
     accounts: AccountDatabase,
 }
 
@@ -400,7 +401,7 @@ fn authenticate(
                 .map_err(|error| error.to_string())?;
 
             Ok(AuthenticatedVault {
-                _session: session,
+                session,
                 accounts: database,
             })
         }
@@ -417,6 +418,297 @@ fn authenticate(
             })
         }
     }
+}
+
+fn labeled_entry(parent: &GtkBox, label_text: &str, placeholder: &str) -> Entry {
+    let field = GtkBox::new(Orientation::Vertical, 4);
+    let label = Label::new(Some(label_text));
+    label.set_xalign(0.0);
+    label.add_css_class("heading");
+
+    let entry = Entry::new();
+    entry.set_placeholder_text(Some(placeholder));
+    entry.set_hexpand(true);
+
+    field.append(&label);
+    field.append(&entry);
+    parent.append(&field);
+    entry
+}
+
+fn show_add_account_page(
+    stack: &Stack,
+    window: &ApplicationWindow,
+    directory: PathBuf,
+    unlocked: Rc<RefCell<Option<AuthenticatedVault>>>,
+) {
+    let page = GtkBox::new(Orientation::Vertical, 14);
+    page.set_margin_top(28);
+    page.set_margin_bottom(28);
+    page.set_margin_start(28);
+    page.set_margin_end(28);
+
+    let title = Label::new(Some("Add an account"));
+    title.add_css_class("title-1");
+    title.set_xalign(0.0);
+
+    let description = Label::new(Some(
+        "Enter the account details and its Base32 TOTP secret. The secret is encrypted before it is written to disk.",
+    ));
+    description.set_wrap(true);
+    description.set_xalign(0.0);
+    description.add_css_class("dim-label");
+
+    let issuer = labeled_entry(&page, "Issuer (optional)", "Example: GitHub");
+    issuer.set_max_length(256);
+
+    let label = labeled_entry(&page, "Account name", "Example: name@example.com");
+    label.set_max_length(256);
+
+    let secret = labeled_entry(&page, "TOTP secret (Base32)", "Paste the secret key");
+    secret.set_visibility(false);
+    secret.set_input_purpose(gtk::InputPurpose::Password);
+    secret.set_max_length(208);
+
+    let algorithm = labeled_entry(&page, "HMAC algorithm", "SHA1, SHA256, or SHA512");
+    algorithm.set_text("SHA1");
+    algorithm.set_max_length(6);
+
+    let digits = labeled_entry(&page, "Code digits", "6, 7, or 8");
+    digits.set_text("6");
+    digits.set_max_length(1);
+
+    let period = labeled_entry(&page, "Time period (seconds)", "30");
+    period.set_text("30");
+    period.set_max_length(5);
+
+    let status = Label::new(None);
+    status.set_wrap(true);
+    status.set_xalign(0.0);
+
+    let buttons = GtkBox::new(Orientation::Horizontal, 8);
+    let back = Button::with_label("Cancel");
+    let save = Button::with_label("Add account");
+    save.add_css_class("suggested-action");
+    save.set_hexpand(true);
+    buttons.append(&back);
+    buttons.append(&save);
+
+    page.append(&title);
+    page.append(&description);
+    page.append(&status);
+    page.append(&buttons);
+
+    let stack_weak = stack.downgrade();
+    let window_weak = window.downgrade();
+    let directory_for_back = directory.clone();
+    let unlocked_for_back = unlocked.clone();
+    back.connect_clicked(move |_| {
+        if let (Some(stack), Some(window)) = (stack_weak.upgrade(), window_weak.upgrade()) {
+            show_accounts_page(
+                &stack,
+                &window,
+                directory_for_back.clone(),
+                unlocked_for_back.clone(),
+            );
+        }
+    });
+
+    let directory_for_save = directory.clone();
+    let unlocked_for_save = unlocked.clone();
+    let stack_weak = stack.downgrade();
+    let window_weak = window.downgrade();
+    let issuer_for_save = issuer.clone();
+    let label_for_save = label.clone();
+    let secret_for_save = secret.clone();
+    let algorithm_for_save = algorithm.clone();
+    let digits_for_save = digits.clone();
+    let period_for_save = period.clone();
+    let status_for_save = status.clone();
+    let save_for_save = save.clone();
+
+    save.connect_clicked(move |_| {
+        let issuer_value = issuer_for_save.text().trim().to_owned();
+        let label_value = label_for_save.text().trim().to_owned();
+        let secret_value = Zeroizing::new(secret_for_save.text().to_string());
+        secret_for_save.set_text("");
+
+        let algorithm_value = match algorithm_for_save.text().trim().to_ascii_uppercase().as_str() {
+            "SHA1" => OtpAlgorithm::Sha1,
+            "SHA256" => OtpAlgorithm::Sha256,
+            "SHA512" => OtpAlgorithm::Sha512,
+            _ => {
+                status_for_save.set_text("Choose SHA1, SHA256, or SHA512.");
+                return;
+            }
+        };
+        let digits_value = match digits_for_save.text().trim().parse::<u8>() {
+            Ok(value @ 6..=8) => value,
+            _ => {
+                status_for_save.set_text("Code length must be 6, 7, or 8 digits.");
+                return;
+            }
+        };
+        let period_value = match period_for_save.text().trim().parse::<u64>() {
+            Ok(value @ 1..=86_400) => value,
+            _ => {
+                status_for_save.set_text("TOTP period must be between 1 and 86400 seconds.");
+                return;
+            }
+        };
+        if label_value.is_empty() {
+            status_for_save.set_text("Enter an account name.");
+            return;
+        }
+
+        let secret_bytes = match decode_base32(secret_value.as_str()) {
+            Ok(value) if value.len() >= 16 => value,
+            Ok(_) => {
+                status_for_save.set_text("Use a secret containing at least 16 decoded bytes.");
+                return;
+            }
+            Err(message) => {
+                status_for_save.set_text(&message);
+                return;
+            }
+        };
+
+        let account = match Account::new_totp(
+            issuer_value,
+            label_value,
+            secret_bytes,
+            algorithm_value,
+            digits_value,
+            period_value,
+        ) {
+            Ok(account) => account,
+            Err(error) => {
+                status_for_save.set_text(&error.to_string());
+                return;
+            }
+        };
+
+        save_for_save.set_sensitive(false);
+        status_for_save.set_text("Encrypting and saving account…");
+
+        let result = {
+            let mut guard = unlocked_for_save.borrow_mut();
+            match guard.as_mut() {
+                Some(vault) => match vault.accounts.insert(account) {
+                    Ok(()) => persist_vault(vault, &directory_for_save),
+                    Err(error) => Err(error.to_string()),
+                },
+                None => Err("The vault is locked. Unlock it before adding an account.".to_owned()),
+            }
+        };
+
+        save_for_save.set_sensitive(true);
+        match result {
+            Ok(()) => {
+                if let (Some(stack), Some(window)) =
+                    (stack_weak.upgrade(), window_weak.upgrade())
+                {
+                    show_accounts_page(
+                        &stack,
+                        &window,
+                        directory_for_save.clone(),
+                        unlocked_for_save.clone(),
+                    );
+                }
+            }
+            Err(message) => {
+                status_for_save.set_text(&format!(
+                    "The account remains in this unlocked session, but the disk save was not confirmed: {message}"
+                ));
+            }
+        }
+    });
+
+    replace_page(stack, "add-account", &page);
+}
+
+fn persist_vault(vault: &mut AuthenticatedVault, directory: &Path) -> Result<(), String> {
+    let plaintext = vault
+        .accounts
+        .encode()
+        .map_err(|error| error.to_string())?;
+    vault
+        .session
+        .replace_plaintext(plaintext)
+        .map_err(|error| error.to_string())?;
+
+    let encrypted = vault
+        .session
+        .seal_current()
+        .map_err(|error| error.to_string())?;
+    let store = VaultStore::open(directory).map_err(|error| error.to_string())?;
+    store.save(&encrypted).map_err(|error| error.to_string())
+}
+
+fn decode_base32(input: &str) -> Result<Zeroizing<Vec<u8>>, String> {
+    let compact: String = input
+        .chars()
+        .filter(|character| !character.is_ascii_whitespace() && *character != '-')
+        .collect();
+
+    if compact.is_empty() {
+        return Err("Enter a Base32 secret.".to_owned());
+    }
+
+    let first_padding = compact.find('=').unwrap_or(compact.len());
+    let data = &compact[..first_padding];
+    let padding = &compact[first_padding..];
+
+    if padding.chars().any(|character| character != '=') {
+        return Err("The Base32 secret contains invalid padding.".to_owned());
+    }
+    if data.is_empty() || data.len() > 206 {
+        return Err("The Base32 secret has an unsupported length.".to_owned());
+    }
+
+    let expected_padding = match data.len() % 8 {
+        0 => 0,
+        2 => 6,
+        4 => 4,
+        5 => 3,
+        7 => 1,
+        _ => return Err("The Base32 secret has an invalid length.".to_owned()),
+    };
+    if !padding.is_empty()
+        && (compact.len() % 8 != 0 || padding.len() != expected_padding)
+    {
+        return Err("The Base32 secret has invalid padding.".to_owned());
+    }
+
+    let mut output = Zeroizing::new(Vec::with_capacity(data.len() * 5 / 8));
+    let mut accumulator = 0_u32;
+    let mut bits = 0_u8;
+
+    for character in data.chars() {
+        let value = match character.to_ascii_uppercase() {
+            'A'..='Z' => character.to_ascii_uppercase() as u8 - b'A',
+            '2'..='7' => character as u8 - b'2' + 26,
+            _ => return Err("The Base32 secret contains an invalid character.".to_owned()),
+        };
+
+        accumulator = (accumulator << 5) | u32::from(value);
+        bits += 5;
+
+        if bits >= 8 {
+            bits -= 8;
+            output.push(((accumulator >> bits) & 0xFF) as u8);
+            accumulator &= (1_u32 << bits) - 1;
+        }
+    }
+
+    if bits > 0 && accumulator != 0 {
+        return Err("The Base32 secret has non-zero unused trailing bits.".to_owned());
+    }
+    if output.is_empty() || output.len() > 128 {
+        return Err("The decoded Base32 secret must be 1 to 128 bytes.".to_owned());
+    }
+
+    Ok(output)
 }
 
 struct AccountRowWidgets {
@@ -442,10 +734,29 @@ fn show_accounts_page(
     title.add_css_class("title-1");
     title.set_hexpand(true);
     title.set_xalign(0.0);
+    let add = Button::with_label("Add account");
     let lock = Button::with_label("Lock");
     header.append(&title);
+    header.append(&add);
     header.append(&lock);
     page.append(&header);
+
+    let stack_for_add = stack.downgrade();
+    let window_for_add = window.downgrade();
+    let directory_for_add = directory.clone();
+    let unlocked_for_add = unlocked.clone();
+    add.connect_clicked(move |_| {
+        if let (Some(stack), Some(window)) =
+            (stack_for_add.upgrade(), window_for_add.upgrade())
+        {
+            show_add_account_page(
+                &stack,
+                &window,
+                directory_for_add.clone(),
+                unlocked_for_add.clone(),
+            );
+        }
+    });
 
     let count = unlocked
         .borrow()
@@ -624,6 +935,58 @@ fn show_accounts_page(
     }
 
     replace_page(stack, "accounts", &page);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn base32_decodes_rfc4648_vectors() {
+        assert_eq!(decode_base32("MY======").expect("valid Base32").as_slice(), b"f");
+        assert_eq!(
+            decode_base32("MZXQ====").expect("valid Base32").as_slice(),
+            b"fo"
+        );
+        assert_eq!(
+            decode_base32("MZXW6===")
+                .expect("valid Base32")
+                .as_slice(),
+            b"foo"
+        );
+        assert_eq!(
+            decode_base32("MZXW6YQ=").expect("valid Base32").as_slice(),
+            b"foob"
+        );
+        assert_eq!(
+            decode_base32("MZXW6YTB").expect("valid Base32").as_slice(),
+            b"fooba"
+        );
+        assert_eq!(
+            decode_base32("MZXW6YTBOI======")
+                .expect("valid Base32")
+                .as_slice(),
+            b"foobar"
+        );
+    }
+
+    #[test]
+    fn base32_accepts_lowercase_spaces_and_hyphens() {
+        assert_eq!(
+            decode_base32("mzxw6 ytb-oi======")
+                .expect("valid Base32")
+                .as_slice(),
+            b"foobar"
+        );
+    }
+
+    #[test]
+    fn base32_rejects_bad_characters_padding_and_trailing_bits() {
+        assert!(decode_base32("MZXW6YTB!").is_err());
+        assert!(decode_base32("MZXW6YTBOI=====").is_err());
+        assert!(decode_base32("MZ======").is_err());
+        assert!(decode_base32("MZX").is_err());
+    }
 }
 
 fn unix_time() -> u64 {

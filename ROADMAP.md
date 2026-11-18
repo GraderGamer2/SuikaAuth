@@ -44,7 +44,8 @@ Status: **Milestone 4 — Linux native frontend**
 - [x] Create and manage ~/.SuikaAuthenticator/ with restrictive permissions through the shared vault store.
 - [x] Add first-run vault creation and password unlocking.
 - [x] Add account list, code display, countdown, and click-to-copy.
-- [ ] Add search and account management.
+- [x] Add manual TOTP account enrollment with Base32 validation and encrypted persistence.
+- [ ] Add HOTP enrollment, account editing/removal, and search.
 - [ ] Add lock-on-inactivity and secure process shutdown.
 - [ ] Build an optimized x86-64 release executable and document system runtime dependencies.
 
@@ -60,7 +61,8 @@ Status: **Milestone 4 — Linux native frontend**
 
 ## 6. Enrollment and migration
 
-- [ ] Add manual TOTP/HOTP enrollment.
+- [x] Add manual TOTP enrollment.
+- [ ] Add manual HOTP enrollment.
 - [ ] Parse and validate otpauth URIs.
 - [ ] Add camera QR scanning on Android.
 - [ ] Add QR image import on Linux.

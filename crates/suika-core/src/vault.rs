@@ -172,8 +172,8 @@ impl Vault {
 
 /// An unlocked vault session.
 ///
-/// The data-encryption key and plaintext payload are zeroized on drop where
-/// supported. This type intentionally does not implement Clone or Debug.
+/// The data-encryption key, retained password-derived wrapping key, and
+/// plaintext payload are zeroized on drop where supported. This type intentionally does not implement Clone or Debug.
 pub struct VaultSession {
     data_key: SecretKey,
     // Retained only while unlocked so routine vault saves do not need the
