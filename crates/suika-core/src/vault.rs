@@ -6,8 +6,8 @@
 use zeroize::Zeroizing;
 
 use crate::crypto::{
-    CryptoError, EncryptedPayload, KdfParams, NONCE_BYTES, SALT_BYTES, SecretKey,
-    TAG_BYTES, decrypt, derive_wrapping_key, encrypt, generate_salt,
+    CryptoError, EncryptedPayload, KdfParams, NONCE_BYTES, SALT_BYTES, SecretKey, TAG_BYTES,
+    decrypt, derive_wrapping_key, encrypt, generate_salt,
 };
 
 /// Eight-byte vault magic identifier.
@@ -50,10 +50,16 @@ impl core::fmt::Display for VaultError {
         match self {
             Self::InvalidContainer => f.write_str("vault container is malformed or truncated"),
             Self::UnsupportedVersion => f.write_str("vault format version is not supported"),
-            Self::UnsupportedAlgorithm => f.write_str("vault cryptographic algorithm is not supported"),
-            Self::InvalidKdfParameters => f.write_str("vault key-derivation parameters are invalid"),
+            Self::UnsupportedAlgorithm => {
+                f.write_str("vault cryptographic algorithm is not supported")
+            }
+            Self::InvalidKdfParameters => {
+                f.write_str("vault key-derivation parameters are invalid")
+            }
             Self::PayloadTooLarge => f.write_str("vault payload exceeds the supported size"),
-            Self::UnlockFailed => f.write_str("vault could not be unlocked; password may be incorrect or data corrupted"),
+            Self::UnlockFailed => f.write_str(
+                "vault could not be unlocked; password may be incorrect or data corrupted",
+            ),
             Self::Crypto(error) => write!(f, "vault cryptographic operation failed: {error}"),
         }
     }
@@ -146,10 +152,7 @@ impl VaultSession {
     }
 
     /// Replace the decrypted account database with a zeroizing buffer.
-    pub fn replace_plaintext(
-        &mut self,
-        plaintext: Zeroizing<Vec<u8>>,
-    ) -> Result<(), VaultError> {
+    pub fn replace_plaintext(&mut self, plaintext: Zeroizing<Vec<u8>>) -> Result<(), VaultError> {
         validate_payload_size(plaintext.len())?;
         self.plaintext = plaintext;
         Ok(())
@@ -161,11 +164,7 @@ impl VaultSession {
     /// new password changes the master password and rewraps the same random
     /// data-encryption key. The payload is also re-encrypted with fresh nonce
     /// material and authenticated header data.
-    pub fn seal(
-        &self,
-        password: &[u8],
-        params: KdfParams,
-    ) -> Result<Vec<u8>, VaultError> {
+    pub fn seal(&self, password: &[u8], params: KdfParams) -> Result<Vec<u8>, VaultError> {
         validate_payload_size(self.plaintext.len())?;
 
         let salt = generate_salt()?;
@@ -173,11 +172,7 @@ impl VaultSession {
         let wrapping_key = derive_wrapping_key(password, &salt, params)?;
 
         let wrapped_key_aad = build_wrap_aad(&prefix);
-        let wrapped_key = encrypt(
-            &wrapping_key,
-            self.data_key.expose(),
-            &wrapped_key_aad,
-        )?;
+        let wrapped_key = encrypt(&wrapping_key, self.data_key.expose(), &wrapped_key_aad)?;
 
         let encrypted_payload_len = self
             .plaintext
@@ -230,15 +225,9 @@ impl LockedVault {
             return Err(VaultError::InvalidContainer);
         }
 
-        let memory_kib = u32::from_be_bytes([
-            prefix[14], prefix[15], prefix[16], prefix[17],
-        ]);
-        let iterations = u32::from_be_bytes([
-            prefix[18], prefix[19], prefix[20], prefix[21],
-        ]);
-        let lanes = u32::from_be_bytes([
-            prefix[22], prefix[23], prefix[24], prefix[25],
-        ]);
+        let memory_kib = u32::from_be_bytes([prefix[14], prefix[15], prefix[16], prefix[17]]);
+        let iterations = u32::from_be_bytes([prefix[18], prefix[19], prefix[20], prefix[21]]);
+        let lanes = u32::from_be_bytes([prefix[22], prefix[23], prefix[24], prefix[25]]);
         let params = KdfParams::new(memory_kib, iterations, lanes)
             .map_err(|_| VaultError::InvalidKdfParameters)?;
         let salt: [u8; SALT_BYTES] = prefix[26..58]
@@ -247,8 +236,7 @@ impl LockedVault {
 
         let mut offset = PREFIX_BYTES;
         let wrap_nonce = take::<NONCE_BYTES>(serialized, &mut offset)?;
-        let wrapped_key_ciphertext =
-            take::<WRAPPED_DEK_CIPHERTEXT_BYTES>(serialized, &mut offset)?;
+        let wrapped_key_ciphertext = take::<WRAPPED_DEK_CIPHERTEXT_BYTES>(serialized, &mut offset)?;
         let wrapped_key = EncryptedPayload::from_parts(wrap_nonce, wrapped_key_ciphertext.to_vec())
             .map_err(VaultError::from)?;
 
@@ -283,10 +271,7 @@ impl LockedVault {
     }
 }
 
-fn take<const N: usize>(
-    serialized: &[u8],
-    offset: &mut usize,
-) -> Result<[u8; N], VaultError> {
+fn take<const N: usize>(serialized: &[u8], offset: &mut usize) -> Result<[u8; N], VaultError> {
     let end = (*offset)
         .checked_add(N)
         .ok_or(VaultError::InvalidContainer)?;
@@ -332,11 +317,7 @@ fn build_payload_aad(
     payload_len: u32,
 ) -> Vec<u8> {
     let mut aad = Vec::with_capacity(
-        PAYLOAD_AAD_DOMAIN.len()
-            + PREFIX_BYTES
-            + NONCE_BYTES
-            + wrapped_key.ciphertext().len()
-            + 4,
+        PAYLOAD_AAD_DOMAIN.len() + PREFIX_BYTES + NONCE_BYTES + wrapped_key.ciphertext().len() + 4,
     );
     aad.extend_from_slice(PAYLOAD_AAD_DOMAIN);
     aad.extend_from_slice(prefix);
@@ -409,9 +390,8 @@ mod tests {
 
     #[test]
     fn rejects_modified_payload_ciphertext() {
-        let mut serialized =
-            Vault::create(b"secret account data", b"password", test_params())
-                .expect("vault creation should succeed");
+        let mut serialized = Vault::create(b"secret account data", b"password", test_params())
+            .expect("vault creation should succeed");
         let last = serialized.len() - 1;
         serialized[last] ^= 0x80;
 
