@@ -142,8 +142,11 @@ impl VaultStore {
             usize::try_from(opened_metadata.len()).map_err(|_| StorageError::VaultTooLarge)?;
         validate_vault_size(file_len)?;
 
+        let read_limit = u64::try_from(MAX_VAULT_FILE_BYTES)
+            .map_err(|_| StorageError::VaultTooLarge)?
+            .saturating_add(1);
         let mut bytes = Vec::with_capacity(file_len);
-        file.read_to_end(&mut bytes)?;
+        file.take(read_limit).read_to_end(&mut bytes)?;
 
         if bytes.len() != file_len {
             return Err(StorageError::InvalidVaultFile);
@@ -292,7 +295,9 @@ fn validate_vault_bytes(bytes: &[u8]) -> Result<(), StorageError> {
     if bytes.get(..VAULT_MAGIC.len()) != Some(VAULT_MAGIC.as_slice()) {
         return Err(StorageError::InvalidVaultFile);
     }
-    Ok(())
+
+    crate::vault::Vault::validate_serialized(bytes)
+        .map_err(|_| StorageError::InvalidVaultFile)
 }
 
 #[cfg(unix)]
@@ -450,6 +455,13 @@ mod tests {
 
         assert!(matches!(
             store.save(b"not a vault"),
+            Err(StorageError::InvalidVaultFile)
+        ));
+
+        let mut invalid_header = test_vault(b"invalid header", b"password");
+        invalid_header[8..10].copy_from_slice(&99_u16.to_be_bytes());
+        assert!(matches!(
+            store.save(&invalid_header),
             Err(StorageError::InvalidVaultFile)
         ));
 

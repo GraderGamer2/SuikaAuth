@@ -102,6 +102,15 @@ impl Vault {
         session.seal(password, params)
     }
 
+    /// Validate the public container structure without decrypting it.
+    ///
+    /// This checks the magic, version, algorithm identifiers, bounded KDF
+    /// parameters, ciphertext lengths, and exact file length. It does not
+    /// authenticate encrypted data; that requires the master password.
+    pub fn validate_serialized(serialized: &[u8]) -> Result<(), VaultError> {
+        LockedVault::parse(serialized).map(|_| ())
+    }
+
     /// Parse and unlock a vault using its master password.
     ///
     /// Wrong passwords and authenticated-data failures intentionally return
