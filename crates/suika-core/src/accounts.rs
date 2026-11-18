@@ -247,6 +247,36 @@ impl Account {
         }
     }
 
+    /// Update account fields while preserving its ID, group, and favorite marker.
+    ///
+    /// Passing `None` for the secret retains the existing secret without
+    /// exposing it to the caller or copying it into the UI layer. A supplied
+    /// secret replaces the old zeroizing buffer after all fields validate.
+    pub fn update(
+        &mut self,
+        issuer: String,
+        label: String,
+        secret: Option<Zeroizing<Vec<u8>>>,
+        algorithm: OtpAlgorithm,
+        digits: u8,
+        mode: AccountMode,
+    ) -> Result<(), AccountError> {
+        let candidate = Self {
+            id: self.id,
+            issuer,
+            label,
+            group: self.group.clone(),
+            favorite: self.favorite,
+            algorithm,
+            digits,
+            mode,
+            secret: secret.unwrap_or_else(|| Zeroizing::new(self.secret.to_vec())),
+        };
+        candidate.validate()?;
+        *self = candidate;
+        Ok(())
+    }
+
     fn validate(&self) -> Result<(), AccountError> {
         if self.label.is_empty()
             || self.label.len() > MAX_LABEL_BYTES
@@ -669,6 +699,92 @@ mod tests {
                 .expect("HOTP should generate"),
             "287082"
         );
+    }
+
+    #[test]
+    fn updating_account_preserves_identity_and_private_metadata() {
+        let mut account = Account::new_totp(
+            "Old issuer",
+            "old-label",
+            Zeroizing::new(b"12345678901234567890".to_vec()),
+            OtpAlgorithm::Sha1,
+            6,
+            30,
+        )
+        .expect("account should be valid");
+        account
+            .set_group(Some("Personal".to_owned()))
+            .expect("group should be valid");
+        account.set_favorite(true);
+        let original_id = *account.id();
+        let original_code = account.generate_code(59).expect("code should generate");
+
+        account
+            .update(
+                "New issuer".to_owned(),
+                "new-label".to_owned(),
+                None,
+                OtpAlgorithm::Sha256,
+                8,
+                AccountMode::Totp { period_seconds: 60 },
+            )
+            .expect("metadata and OTP settings should update");
+
+        assert_eq!(account.id(), &original_id);
+        assert_eq!(account.issuer(), "New issuer");
+        assert_eq!(account.label(), "new-label");
+        assert_eq!(account.group(), Some("Personal"));
+        assert!(account.is_favorite());
+        assert_eq!(account.algorithm(), OtpAlgorithm::Sha256);
+        assert_eq!(account.digits(), 8);
+        assert_ne!(account.generate_code(59).expect("updated code"), original_code);
+
+        let updated_code = account.generate_code(59).expect("updated code");
+        account
+            .update(
+                "New issuer".to_owned(),
+                "new-label".to_owned(),
+                Some(Zeroizing::new(b"abcdefghijabcdefghij".to_vec())),
+                OtpAlgorithm::Sha1,
+                6,
+                AccountMode::Hotp { counter: 7 },
+            )
+            .expect("replacement secret and HOTP mode should update");
+        assert_eq!(account.id(), &original_id);
+        assert_eq!(account.mode(), AccountMode::Hotp { counter: 7 });
+        assert_eq!(account.digits(), 6);
+        assert_ne!(account.generate_code(0).expect("HOTP code"), updated_code);
+    }
+
+    #[test]
+    fn invalid_account_update_is_transactional() {
+        let mut account = Account::new_totp(
+            "Issuer",
+            "label",
+            Zeroizing::new(b"12345678901234567890".to_vec()),
+            OtpAlgorithm::Sha1,
+            6,
+            30,
+        )
+        .expect("account should be valid");
+        let original_code = account.generate_code(59).expect("code");
+
+        assert_eq!(
+            account
+                .update(
+                    "Changed".to_owned(),
+                    String::new(),
+                    None,
+                    OtpAlgorithm::Sha256,
+                    9,
+                    AccountMode::Totp { period_seconds: 0 },
+                )
+                .err(),
+            Some(AccountError::InvalidAccount)
+        );
+        assert_eq!(account.issuer(), "Issuer");
+        assert_eq!(account.label(), "label");
+        assert_eq!(account.generate_code(59).expect("original code"), original_code);
     }
 
     #[test]

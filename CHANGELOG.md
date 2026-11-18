@@ -4,6 +4,11 @@ All notable project changes will be recorded here.
 
 ## Unreleased
 
+- Added account editing that preserves stable IDs, groups, and favorites while allowing optional secret replacement without displaying the existing secret.
+- Added explicit AlertDialog confirmation before removing an account; removed account secrets are dropped through the core's zeroizing ownership.
+- Added transactional account updates in suika-core and tests for metadata preservation, OTP changes, and invalid-update rollback.
+- Switched confirmation/error prompts to GTK 4.10 AlertDialog APIs and enabled the matching gtk-rs feature rather than using deprecated MessageDialog.
+
 - Added HOTP enrollment to the Linux account form, including Base32 secret validation, algorithm/digit configuration, and an initial counter.
 - Added a HOTP “Copy & next” action that copies the current one-time code only after the incremented counter has been encrypted and persisted.
 - Added live local search across account issuer and label without requiring an index or external service.

@@ -32,7 +32,7 @@ Do not scatter application data across XDG configuration, data, or cache directo
 
 ## Development status
 
-See ROADMAP.md for the authoritative implementation sequence and current milestone. The shared Rust core includes RFC-tested TOTP/HOTP generation, an Argon2id/XChaCha20 encrypted vault, a compact versioned account database, and atomic app-directory vault storage. The GTK4 Linux frontend supports first-run vault creation, password unlock, live OTP display, click-to-copy, explicit locking, and manual TOTP enrollment with Base32 secrets. Account editing/removal and inactivity locking remain in progress; the Linux interface now also supports HOTP enrollment and local account search.
+See ROADMAP.md for the authoritative implementation sequence and current milestone. The shared Rust core includes RFC-tested TOTP/HOTP generation, an Argon2id/XChaCha20 encrypted vault, a compact versioned account database, and atomic app-directory vault storage. The GTK4 Linux frontend supports first-run vault creation, password unlock, live OTP display, click-to-copy, explicit locking, and manual TOTP enrollment with Base32 secrets. Inactivity locking remains in progress; the Linux interface supports TOTP/HOTP enrollment, account editing/removal, and local account search.
 
 ## CI downloads
 

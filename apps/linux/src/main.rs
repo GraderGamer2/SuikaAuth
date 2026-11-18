@@ -768,6 +768,342 @@ struct AccountRowWidgets {
     countdown: Label,
 }
 
+fn algorithm_name(algorithm: OtpAlgorithm) -> &'static str {
+    match algorithm {
+        OtpAlgorithm::Sha1 => "SHA1",
+        OtpAlgorithm::Sha256 => "SHA256",
+        OtpAlgorithm::Sha512 => "SHA512",
+    }
+}
+
+fn show_edit_account_page(
+    stack: &Stack,
+    window: &ApplicationWindow,
+    directory: PathBuf,
+    unlocked: Rc<RefCell<Option<AuthenticatedVault>>>,
+    id: [u8; 16],
+) {
+    let snapshot = {
+        let borrowed = unlocked.borrow();
+        borrowed.as_ref().and_then(|vault| {
+            vault
+                .accounts
+                .accounts()
+                .iter()
+                .find(|account| account.id() == &id)
+                .map(|account| {
+                    let (mode, parameter) = match account.mode() {
+                        AccountMode::Totp { period_seconds } => ("TOTP", period_seconds),
+                        AccountMode::Hotp { counter } => ("HOTP", counter),
+                    };
+                    (
+                        account.issuer().to_owned(),
+                        account.label().to_owned(),
+                        algorithm_name(account.algorithm()),
+                        account.digits(),
+                        mode,
+                        parameter,
+                    )
+                })
+        })
+    };
+    let Some((issuer_value, label_value, algorithm_value, digits_value, mode_value, parameter_value)) =
+        snapshot
+    else {
+        show_message_dialog(
+            window,
+            "Account unavailable",
+            "This account no longer exists in the unlocked vault.",
+        );
+        return;
+    };
+
+    let page = GtkBox::new(Orientation::Vertical, 14);
+    page.set_margin_top(28);
+    page.set_margin_bottom(28);
+    page.set_margin_start(28);
+    page.set_margin_end(28);
+
+    let title = Label::new(Some("Edit account"));
+    title.add_css_class("title-1");
+    title.set_xalign(0.0);
+
+    let description = Label::new(Some(
+        "Leave the replacement-secret field blank to keep the current secret. The existing secret is never displayed.",
+    ));
+    description.set_wrap(true);
+    description.set_xalign(0.0);
+    description.add_css_class("dim-label");
+
+    let issuer = labeled_entry(&page, "Issuer (optional)", "Example: GitHub");
+    issuer.set_max_length(256);
+    issuer.set_text(&issuer_value);
+
+    let label = labeled_entry(&page, "Account name", "Example: name@example.com");
+    label.set_max_length(256);
+    label.set_text(&label_value);
+
+    let secret = labeled_entry(
+        &page,
+        "Replacement secret (Base32, optional)",
+        "Leave blank to keep the current secret",
+    );
+    secret.set_visibility(false);
+    secret.set_input_purpose(gtk::InputPurpose::Password);
+    secret.set_max_length(208);
+
+    let mode = labeled_entry(&page, "OTP mode", "TOTP or HOTP");
+    mode.set_text(mode_value);
+    mode.set_max_length(4);
+
+    let algorithm = labeled_entry(&page, "HMAC algorithm", "SHA1, SHA256, or SHA512");
+    algorithm.set_text(algorithm_value);
+    algorithm.set_max_length(6);
+
+    let digits = labeled_entry(&page, "Code digits", "6, 7, or 8");
+    digits.set_text(&digits_value.to_string());
+    digits.set_max_length(1);
+
+    let parameter = labeled_entry(&page, "TOTP period / HOTP counter", "Seconds or counter");
+    parameter.set_text(&parameter_value.to_string());
+    parameter.set_max_length(20);
+
+    let status = Label::new(None);
+    status.set_wrap(true);
+    status.set_xalign(0.0);
+
+    let buttons = GtkBox::new(Orientation::Horizontal, 8);
+    let back = Button::with_label("Cancel");
+    let save = Button::with_label("Save changes");
+    save.add_css_class("suggested-action");
+    save.set_hexpand(true);
+    buttons.append(&back);
+    buttons.append(&save);
+
+    page.append(&title);
+    page.append(&description);
+    page.append(&status);
+    page.append(&buttons);
+
+    let stack_weak = stack.downgrade();
+    let window_weak = window.downgrade();
+    let directory_for_back = directory.clone();
+    let unlocked_for_back = unlocked.clone();
+    back.connect_clicked(move |_| {
+        if let (Some(stack), Some(window)) = (stack_weak.upgrade(), window_weak.upgrade()) {
+            show_accounts_page(
+                &stack,
+                &window,
+                directory_for_back.clone(),
+                unlocked_for_back.clone(),
+            );
+        }
+    });
+
+    let stack_weak = stack.downgrade();
+    let window_weak = window.downgrade();
+    let directory_for_save = directory.clone();
+    let unlocked_for_save = unlocked.clone();
+    let issuer_for_save = issuer.clone();
+    let label_for_save = label.clone();
+    let secret_for_save = secret.clone();
+    let mode_for_save = mode.clone();
+    let algorithm_for_save = algorithm.clone();
+    let digits_for_save = digits.clone();
+    let parameter_for_save = parameter.clone();
+    let status_for_save = status.clone();
+    let save_for_save = save.clone();
+
+    save.connect_clicked(move |_| {
+        let issuer_value = issuer_for_save.text().trim().to_owned();
+        let label_value = label_for_save.text().trim().to_owned();
+        let secret_text = Zeroizing::new(secret_for_save.text().to_string());
+        secret_for_save.set_text("");
+
+        let mode_value = mode_for_save.text().trim().to_ascii_uppercase();
+        let mode = match mode_value.as_str() {
+            "TOTP" | "HOTP" => mode_value,
+            _ => {
+                status_for_save.set_text("Choose TOTP or HOTP as the OTP mode.");
+                return;
+            }
+        };
+
+        let algorithm = match algorithm_for_save.text().trim().to_ascii_uppercase().as_str() {
+            "SHA1" => OtpAlgorithm::Sha1,
+            "SHA256" => OtpAlgorithm::Sha256,
+            "SHA512" => OtpAlgorithm::Sha512,
+            _ => {
+                status_for_save.set_text("Choose SHA1, SHA256, or SHA512.");
+                return;
+            }
+        };
+        let digits = match digits_for_save.text().trim().parse::<u8>() {
+            Ok(value @ 6..=8) => value,
+            _ => {
+                status_for_save.set_text("Code length must be 6, 7, or 8 digits.");
+                return;
+            }
+        };
+        let parameter = match parameter_for_save.text().trim().parse::<u64>() {
+            Ok(value) => value,
+            Err(_) => {
+                status_for_save.set_text("Enter a valid TOTP period or HOTP counter.");
+                return;
+            }
+        };
+        let otp_mode = if mode == "TOTP" {
+            if !(1..=86_400).contains(&parameter) {
+                status_for_save.set_text("TOTP period must be between 1 and 86400 seconds.");
+                return;
+            }
+            AccountMode::Totp {
+                period_seconds: parameter,
+            }
+        } else {
+            AccountMode::Hotp { counter: parameter }
+        };
+        if label_value.trim().is_empty() {
+            status_for_save.set_text("Enter an account name.");
+            return;
+        }
+
+        let replacement_secret = if secret_text.is_empty() {
+            None
+        } else {
+            match decode_base32(secret_text.as_str()) {
+                Ok(value) if value.len() >= 16 => Some(value),
+                Ok(_) => {
+                    status_for_save.set_text("Use a secret containing at least 16 decoded bytes.");
+                    return;
+                }
+                Err(message) => {
+                    status_for_save.set_text(&message);
+                    return;
+                }
+            }
+        };
+
+        save_for_save.set_sensitive(false);
+        status_for_save.set_text("Encrypting and saving changes…");
+
+        let result = {
+            let mut guard = unlocked_for_save.borrow_mut();
+            match guard.as_mut() {
+                Some(vault) => {
+                    let update_result = vault
+                        .accounts
+                        .get_mut(&id)
+                        .ok_or_else(|| "The account no longer exists.".to_owned())
+                        .and_then(|account| {
+                            account
+                                .update(
+                                    issuer_value,
+                                    label_value,
+                                    replacement_secret,
+                                    algorithm,
+                                    digits,
+                                    otp_mode,
+                                )
+                                .map_err(|error| error.to_string())
+                        });
+                    match update_result {
+                        Ok(()) => persist_vault(vault, &directory_for_save),
+                        Err(message) => Err(message),
+                    }
+                }
+                None => Err("The vault is locked.".to_owned()),
+            }
+        };
+
+        save_for_save.set_sensitive(true);
+        match result {
+            Ok(()) => {
+                if let (Some(stack), Some(window)) =
+                    (stack_weak.upgrade(), window_weak.upgrade())
+                {
+                    show_accounts_page(
+                        &stack,
+                        &window,
+                        directory_for_save.clone(),
+                        unlocked_for_save.clone(),
+                    );
+                }
+            }
+            Err(message) => {
+                status_for_save.set_text(&format!(
+                    "Changes remain in this unlocked session, but the disk save was not confirmed: {message}"
+                ));
+            }
+        }
+    });
+
+    replace_page(stack, "edit-account", &page);
+}
+
+fn show_message_dialog(window: &ApplicationWindow, title: &str, message: &str) {
+    let alert = gtk::AlertDialog::builder()
+        .message(title)
+        .detail(message)
+        .buttons(["Close"])
+        .modal(true)
+        .build();
+    alert.show(Some(window));
+}
+
+fn confirm_remove_account(
+    window: &ApplicationWindow,
+    stack: &Stack,
+    directory: PathBuf,
+    unlocked: Rc<RefCell<Option<AuthenticatedVault>>>,
+    id: [u8; 16],
+) {
+    let alert = gtk::AlertDialog::builder()
+        .message("Remove this account?")
+        .detail("The account and its secret will be removed from the encrypted vault.")
+        .buttons(["Cancel", "Remove"])
+        .cancel_button(0)
+        .default_button(0)
+        .modal(true)
+        .build();
+
+    let stack_weak = stack.downgrade();
+    let window_weak = window.downgrade();
+    let directory_for_remove = directory.clone();
+    let unlocked_for_remove = unlocked.clone();
+    alert.choose(Some(window), None, move |response| {
+        if !matches!(response, Ok(1)) {
+            return;
+        }
+
+        let result = {
+            let mut guard = unlocked_for_remove.borrow_mut();
+            match guard.as_mut() {
+                Some(vault) => {
+                    if vault.accounts.remove(&id) {
+                        persist_vault(vault, &directory_for_remove)
+                    } else {
+                        Err("The account no longer exists.".to_owned())
+                    }
+                }
+                None => Err("The vault is locked.".to_owned()),
+            }
+        };
+
+        if let (Some(stack), Some(window)) = (stack_weak.upgrade(), window_weak.upgrade()) {
+            show_accounts_page(
+                &stack,
+                &window,
+                directory_for_remove.clone(),
+                unlocked_for_remove.clone(),
+            );
+            if let Err(message) = result {
+                show_message_dialog(&window, "Account removal was not saved", &message);
+            }
+        }
+    });
+}
+
 fn show_accounts_page(
     stack: &Stack,
     window: &ApplicationWindow,
@@ -838,7 +1174,7 @@ fn show_accounts_page(
             let empty_title = Label::new(Some("No accounts yet"));
             empty_title.add_css_class("title-2");
             let empty_hint = Label::new(Some(
-                "Your encrypted vault is ready. Manual TOTP and HOTP enrollment is the next Linux frontend step.",
+                "Your encrypted vault is ready. Use Add account to enroll a TOTP or HOTP token.",
             ));
             empty_hint.set_wrap(true);
             empty_hint.set_justify(gtk::Justification::Center);
@@ -940,6 +1276,48 @@ fn show_accounts_page(
                         row_content.append(&advance);
                     }
                 }
+
+                let edit = Button::with_label("Edit");
+                let edit_id = *account.id();
+                let stack_for_edit = stack.downgrade();
+                let window_for_edit = window.downgrade();
+                let directory_for_edit = directory.clone();
+                let unlocked_for_edit = unlocked.clone();
+                edit.connect_clicked(move |_| {
+                    if let (Some(stack), Some(window)) =
+                        (stack_for_edit.upgrade(), window_for_edit.upgrade())
+                    {
+                        show_edit_account_page(
+                            &stack,
+                            &window,
+                            directory_for_edit.clone(),
+                            unlocked_for_edit.clone(),
+                            edit_id,
+                        );
+                    }
+                });
+                row_content.append(&edit);
+
+                let remove = Button::with_label("Remove");
+                let remove_id = *account.id();
+                let stack_for_remove = stack.downgrade();
+                let window_for_remove = window.downgrade();
+                let directory_for_remove = directory.clone();
+                let unlocked_for_remove = unlocked.clone();
+                remove.connect_clicked(move |_| {
+                    if let (Some(stack), Some(window)) =
+                        (stack_for_remove.upgrade(), window_for_remove.upgrade())
+                    {
+                        confirm_remove_account(
+                            &window,
+                            &stack,
+                            directory_for_remove.clone(),
+                            unlocked_for_remove.clone(),
+                            remove_id,
+                        );
+                    }
+                });
+                row_content.append(&remove);
 
                 let row = ListBoxRow::new();
                 row.set_child(Some(&row_content));

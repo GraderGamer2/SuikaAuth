@@ -46,7 +46,7 @@ Status: **Milestone 4 — Linux native frontend**
 - [x] Add account list, code display, countdown, and click-to-copy.
 - [x] Add manual TOTP account enrollment with Base32 validation and encrypted persistence.
 - [x] Add HOTP enrollment and account search.
-- [ ] Add account editing and removal.
+- [x] Add account editing and removal, preserving stable IDs and never displaying existing secrets.
 - [ ] Add lock-on-inactivity and secure process shutdown.
 - [x] Build an optimized x86-64 release executable and document system runtime dependencies.
 
