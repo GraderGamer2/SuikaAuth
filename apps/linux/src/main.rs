@@ -2741,7 +2741,9 @@ fn show_accounts_page(
     backup_heading.set_xalign(0.0);
     let create_backup = Button::with_label("Create encrypted backup");
     let restore_backup = Button::with_label("Restore encrypted backup");
-    let restore_hint = Label::new(Some("Restore replaces all current accounts; it does not merge them."));
+    let restore_hint = Label::new(Some(
+        "Restore replaces all current accounts; it does not merge them.",
+    ));
     restore_hint.set_wrap(true);
     restore_hint.add_css_class("dim-label");
     restore_hint.set_xalign(0.0);
@@ -2873,7 +2875,9 @@ fn show_accounts_page(
     detail_issuer.set_xalign(0.5);
     detail_issuer.set_justify(gtk::Justification::Center);
     detail_issuer.set_wrap(true);
-    let detail_account = Label::new(Some("Choose an account from the list to view its one-time password."));
+    let detail_account = Label::new(Some(
+        "Choose an account from the list to view its one-time password.",
+    ));
     detail_account.add_css_class("dim-label");
     detail_account.set_xalign(0.5);
     detail_account.set_justify(gtk::Justification::Center);
@@ -3241,7 +3245,10 @@ fn show_accounts_page(
         let Some(id) = selected_for_remove.get() else {
             return;
         };
-        if let (Some(stack), Some(window)) = (stack_for_remove.upgrade(), window_for_remove.upgrade()) {
+        if let (Some(stack), Some(window)) = (
+            stack_for_remove.upgrade(),
+            window_for_remove.upgrade(),
+        ) {
             confirm_remove_account(
                 &window,
                 &stack,
@@ -3254,7 +3261,9 @@ fn show_accounts_page(
 
     if count == 0 {
         detail_issuer.set_text("No accounts yet");
-        detail_account.set_text("Add an account or import an existing authenticator export to get started.");
+        detail_account.set_text(
+            "Add an account or import an existing authenticator export to get started.",
+        );
         detail_code.set_text("—");
         detail_countdown.set_text("");
     } else if let Some(first_row) = list.row_at_index(0) {
