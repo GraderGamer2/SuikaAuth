@@ -28,7 +28,7 @@ const MAX_GROUPS: usize = 10_000;
 const MAX_SLOTS: usize = 16;
 const MAX_PASSWORD_SLOTS: usize = 4;
 const MAX_PASSWORD_BYTES: usize = 4096;
-const MAX_BASE64_BYTES: usize = ((MAX_DATABASE_BYTES + AES_TAG_BYTES + 2) / 3) * 4;
+const MAX_BASE64_BYTES: usize = (MAX_DATABASE_BYTES + AES_TAG_BYTES).div_ceil(3) * 4;
 const MAX_SCRYPT_MEMORY_BYTES: u64 = 128 * 1024 * 1024;
 const MAX_SCRYPT_WORK: u64 = 2 * 1024 * 1024;
 const AES_KEY_BYTES: usize = 32;
@@ -352,11 +352,11 @@ fn decrypt_aegis_database(
         scrypt::scrypt(password, &salt, &params, &mut derived_key[..])
             .map_err(|_| AegisImportError::InvalidEncryptionParameters)?;
 
-        if let Ok(key) = decrypt_aes_gcm(&derived_key[..], &wrapped_key, &slot.key_params) {
-            if key.len() == AES_KEY_BYTES {
-                master_key = Some(key);
-                break;
-            }
+        if let Ok(key) = decrypt_aes_gcm(&derived_key[..], &wrapped_key, &slot.key_params)
+            && key.len() == AES_KEY_BYTES
+        {
+            master_key = Some(key);
+            break;
         }
     }
 
@@ -397,11 +397,11 @@ fn validate_nonce_and_tag(parameters: &AegisCipherParameters) -> Result<(), Aegi
 }
 
 fn decode_hex(value: &str) -> Result<Zeroizing<Vec<u8>>, AegisImportError> {
-    if value.is_empty() || value.len() % 2 != 0 || value.len() > 256 {
+    if value.is_empty() || !value.len().is_multiple_of(2) || value.len() > 256 {
         return Err(AegisImportError::InvalidEncryptionParameters);
     }
     let mut output = Zeroizing::new(Vec::with_capacity(value.len() / 2));
-    for pair in value.as_bytes().chunks_exact(2) {
+    for pair in value.as_bytes().as_chunks::<2>().0 {
         let high = hex_nibble(pair[0]).ok_or(AegisImportError::InvalidEncryptionParameters)?;
         let low = hex_nibble(pair[1]).ok_or(AegisImportError::InvalidEncryptionParameters)?;
         output.push((high << 4) | low);
@@ -507,12 +507,10 @@ fn convert_aegis_database(database: AegisDatabase) -> Result<AegisImportResult, 
                         .unwrap_or_else(|| legacy_group.clone())
                 })
             });
-        if let Some(group) = group_name {
-            if group.len() <= 128 && !group.is_empty() {
-                account
-                    .set_group(Some(group))
-                    .map_err(|_| AegisImportError::InvalidAccount)?;
-            }
+        if let Some(group) = group_name && group.len() <= 128 && !group.is_empty() {
+            account
+                .set_group(Some(group))
+                .map_err(|_| AegisImportError::InvalidAccount)?;
         }
         accounts.push(account);
     }
