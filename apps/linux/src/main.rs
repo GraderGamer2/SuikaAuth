@@ -2794,7 +2794,7 @@ fn show_accounts_page(
     let list = ListBox::new();
     list.set_selection_mode(gtk::SelectionMode::Single);
     list.set_activate_on_single_click(true);
-    list.add_css_class("boxed-list");
+    list.add_css_class("navigation-sidebar");
 
     let mut account_ids = Vec::new();
     let mut searchable_rows: Vec<(ListBoxRow, String)> = Vec::new();
