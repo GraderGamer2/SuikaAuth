@@ -8,6 +8,7 @@
 
 pub mod accounts;
 pub mod aegis;
+pub mod backup;
 pub mod base32;
 pub mod crypto;
 pub mod otp;

@@ -3,6 +3,7 @@
 All notable project changes will be recorded here.
 
 ## Unreleased
+- Added the shared Rust core for portable `.suikabak` version-1 backups. Each backup uses an independent password-derived KEK, a fresh random DEK, XChaCha20-Poly1305 authenticated encryption, strict KDF/file/database bounds, and zeroizing restore buffers. Linux/Android export and restore UI wiring is the next step.
 - Added offline Aegis JSON migration on Linux and Android, supporting plaintext exports and password-encrypted exports using Aegis scrypt password slots and AES-256-GCM payload encryption. Export passwords, input JSON, decrypted databases, KDF outputs, and imported OTP secrets use zeroizing buffers.
 - Added strict Aegis import bounds: 16 MiB source file, 8 MiB decrypted database, 10,000 entries/groups, 4 KiB export password, at most 16 slots and four password slots, and scrypt parameters capped at 128 MiB including major working buffers. Header shape, nonce/tag lengths, Base64 payload size, and KDF cost are checked before expensive derivation. The parser rejects unsupported vault/database versions and never performs network access.
 - Added regression coverage using Aegis's own plaintext and password-encrypted example exports, alongside synthetic encrypted exports, wrong-password checks, excessive KDF-cost rejection, malformed header tests, and password-size boundaries.

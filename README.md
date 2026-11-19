@@ -40,7 +40,7 @@ The Build binaries workflow builds the optimized Linux executable and Android de
 
 Successful build artifacts are available under the workflow run's Artifacts section and expire after **one day**. They are temporary CI downloads, not permanent GitHub Releases.
 
-See docs/BUILDING.md for build details. For supported authenticator export formats, preserved fields, and migration limits, see docs/MIGRATION.md.
+See docs/BUILDING.md for build details. For supported authenticator export formats, preserved fields, and migration limits, see docs/MIGRATION.md. The portable encrypted backup format is specified in docs/BACKUP_FORMAT.md.
 
 ## Dependency policy
 

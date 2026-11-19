@@ -2,7 +2,7 @@
 
 This is the authoritative project roadmap. Update its checkboxes and the changelog as work is completed. Development follows this order unless a security or correctness issue requires reordering.
 
-Status: **Milestone 6 — Enrollment and migration**
+Status: **Milestone 6 — Enrollment and migration (QR and Aegis paths CI-validated; backup core in progress)**
 
 ## 1. Repository and architecture foundation
 
@@ -71,19 +71,19 @@ Status: **Milestone 6 — Enrollment and migration**
 - [x] Add manual TOTP enrollment.
 - [x] Add manual HOTP enrollment.
 - [x] Parse and validate bounded TOTP/HOTP otpauth URIs, including percent encoding, duplicate rejection, issuer consistency, and OTP parameter validation.
-- [ ] Add offline Android camera QR scanning using CameraX and a bundled ML Kit QR model; request camera permission only when scanning is started (implementation added; CI validation pending).
-- [ ] Add local Linux QR image import using GdkPixbuf and the pure-Rust quircs decoder, with image/pixel bounds and single-code validation (implementation added; CI validation pending).
-- [ ] Add offline migration from plaintext and password-encrypted Aegis JSON exports on Linux and Android; preserve standard TOTP/HOTP settings, favorites, and one group mapping, and report unsupported Aegis token types (implementation added; CI validation pending).
+- [x] Add offline Android camera QR scanning using CameraX and a bundled ML Kit QR model; request camera permission only when scanning is started. CI builds the Android APK with the camera model dependency.
+- [x] Add local Linux QR image import using GdkPixbuf and the pure-Rust quircs decoder, with image/pixel bounds and single-code validation; the Linux frontend builds in CI.
+- [x] Add offline migration from plaintext and password-encrypted Aegis JSON exports on Linux and Android; preserve standard TOTP/HOTP settings, favorites, and one group mapping, and report unsupported Aegis token types. Tests use Aegis's published plaintext and encrypted examples.
 - [ ] Add migration from other documented authenticator formats.
 - [x] Validate issuer, account label, Base32 secret encoding and length, algorithm, digits, TOTP period, and HOTP counter during URI import.
 
 ## 7. Encrypted backup and restore
 
-- [ ] Define a portable encrypted backup format.
-- [ ] Derive backup encryption keys from a user-supplied backup password.
-- [ ] Add export, import, restore verification, and clear error handling.
+- [x] Define a portable encrypted backup format; see docs/BACKUP_FORMAT.md.
+- [x] Derive backup encryption keys from a user-supplied backup password using the bounded Argon2id profile and a separate random DEK.
+- [ ] Add Linux and Android export/import UI, transactional restore, and clear error handling.
 - [ ] Test cross-platform restore between Linux and Android.
-- [ ] Ensure backups never contain plaintext OTP secrets.
+- [x] Ensure backups never contain plaintext OTP secrets; core tests verify encrypted output and authenticated round trips.
 
 ## 8. Security hardening and release
 
