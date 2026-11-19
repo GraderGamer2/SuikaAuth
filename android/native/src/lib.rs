@@ -32,7 +32,6 @@ pub extern "system" fn JNI_OnLoad(
     jni::sys::JNI_VERSION_1_6
 }
 
-
 const APP_DIRECTORY: &str = "SuikaAuthenticator";
 const MAX_SESSION_HANDLE_ATTEMPTS: usize = 8;
 
@@ -110,7 +109,10 @@ fn unlock_vault(app_private_root: &str, password: &[u8]) -> Result<u64, String> 
     })
 }
 
-fn unlock_vault_with_device_key(app_private_root: &str, wrapping_key: &[u8]) -> Result<u64, String> {
+fn unlock_vault_with_device_key(
+    app_private_root: &str,
+    wrapping_key: &[u8],
+) -> Result<u64, String> {
     let store = open_store(app_private_root)?;
     let serialized = store.load().map_err(|error| error.to_string())?;
     let vault = Vault::unlock_with_device_wrapping_key(&serialized, wrapping_key)
@@ -237,7 +239,9 @@ fn import_otpauth_uri(handle: jlong, encoded_uri: &[u8]) -> Result<(), String> {
         .map_err(|error| error.to_string())?;
     let mut candidate =
         AccountDatabase::decode(&candidate_bytes).map_err(|error| error.to_string())?;
-    candidate.insert(account).map_err(|error| error.to_string())?;
+    candidate
+        .insert(account)
+        .map_err(|error| error.to_string())?;
     persist_candidate(session, candidate)
 }
 
@@ -486,7 +490,9 @@ pub extern "system" fn Java_org_suika_suikaauthenticator_NativeBridge_nativeUnlo
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_org_suika_suikaauthenticator_NativeBridge_nativeUnlockVaultWithDeviceKey<'local>(
+pub extern "system" fn Java_org_suika_suikaauthenticator_NativeBridge_nativeUnlockVaultWithDeviceKey<
+    'local,
+>(
     mut unowned_env: EnvUnowned<'local>,
     _class: JClass<'local>,
     root: JString<'local>,
@@ -505,7 +511,9 @@ pub extern "system" fn Java_org_suika_suikaauthenticator_NativeBridge_nativeUnlo
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_org_suika_suikaauthenticator_NativeBridge_nativeExportDeviceUnlockKey<'local>(
+pub extern "system" fn Java_org_suika_suikaauthenticator_NativeBridge_nativeExportDeviceUnlockKey<
+    'local,
+>(
     mut unowned_env: EnvUnowned<'local>,
     _class: JClass<'local>,
     handle: jlong,
@@ -602,7 +610,9 @@ pub extern "system" fn Java_org_suika_suikaauthenticator_NativeBridge_nativeAddT
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_org_suika_suikaauthenticator_NativeBridge_nativeImportOtpAuthUri<'local>(
+pub extern "system" fn Java_org_suika_suikaauthenticator_NativeBridge_nativeImportOtpAuthUri<
+    'local,
+>(
     mut unowned_env: EnvUnowned<'local>,
     _class: JClass<'local>,
     handle: jlong,
@@ -742,7 +752,8 @@ mod tests {
             handle as jlong,
             format!(
                 "otpauth://hotp/Example:backup?secret={secret}&counter=9&algorithm=SHA512&digits=7"
-            ).as_bytes(),
+            )
+            .as_bytes(),
         )
         .expect("HOTP provisioning URI should import");
 
@@ -787,18 +798,27 @@ mod tests {
         let params = KdfParams::new(64 * 1024, 1, 1).expect("test KDF profile");
         let (serialized, vault) = Vault::create_session(&plaintext, b"test password", params)
             .expect("encrypted vault and unlocked session should be created");
-        store.save_new(&serialized).expect("initial vault should be saved");
+        store
+            .save_new(&serialized)
+            .expect("initial vault should be saved");
         let handle = insert_session(NativeSession {
             store,
             vault,
             accounts,
-        }).expect("native session should be allocated");
+        })
+        .expect("native session should be allocated");
 
-        assert!(import_otpauth_uri(handle as jlong, b"otpauth://totp/alice?secret=invalid!").is_err());
-        let registry = sessions().lock().expect("session registry should remain available");
-        let session = registry.get(&handle).expect("native session should remain active");
+        assert!(
+            import_otpauth_uri(handle as jlong, b"otpauth://totp/alice?secret=invalid!").is_err()
+        );
+        let mut registry = sessions()
+            .lock()
+            .expect("session registry should remain available");
+        let session = registry
+            .get(&handle)
+            .expect("native session should remain active");
         assert!(session.accounts.is_empty());
-        registry.remove(&handle);
+        assert!(registry.remove(&handle).is_some());
     }
 
     #[test]

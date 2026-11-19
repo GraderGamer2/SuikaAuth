@@ -28,8 +28,12 @@ impl core::fmt::Display for OtpAuthError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::InvalidUri => f.write_str("The provisioning URI is malformed or unsupported."),
-            Self::InvalidParameter => f.write_str("The provisioning URI contains invalid OTP parameters."),
-            Self::InvalidSecret => f.write_str("The provisioning URI does not contain a valid Base32 secret."),
+            Self::InvalidParameter => {
+                f.write_str("The provisioning URI contains invalid OTP parameters.")
+            }
+            Self::InvalidSecret => {
+                f.write_str("The provisioning URI does not contain a valid Base32 secret.")
+            }
             Self::Account(error) => write!(f, "The provisioning account is invalid: {error}"),
         }
     }
@@ -72,7 +76,9 @@ pub fn parse_otpauth_uri(uri: &str) -> Result<Account, OtpAuthError> {
         return Err(OtpAuthError::InvalidUri);
     };
 
-    let (encoded_label, query) = path_and_query.split_once('?').ok_or(OtpAuthError::InvalidUri)?;
+    let (encoded_label, query) = path_and_query
+        .split_once('?')
+        .ok_or(OtpAuthError::InvalidUri)?;
     if encoded_label.is_empty()
         || encoded_label.contains('/')
         || query.is_empty()
@@ -94,8 +100,7 @@ pub fn parse_otpauth_uri(uri: &str) -> Result<Account, OtpAuthError> {
         if fields.len() >= MAX_QUERY_FIELDS {
             return Err(OtpAuthError::InvalidUri);
         }
-        let (encoded_key, encoded_value) =
-            pair.split_once('=').ok_or(OtpAuthError::InvalidUri)?;
+        let (encoded_key, encoded_value) = pair.split_once('=').ok_or(OtpAuthError::InvalidUri)?;
         if encoded_key.is_empty() || encoded_value.len() > MAX_QUERY_COMPONENT_BYTES {
             return Err(OtpAuthError::InvalidUri);
         }
@@ -106,9 +111,7 @@ pub fn parse_otpauth_uri(uri: &str) -> Result<Account, OtpAuthError> {
         }
     }
 
-    let secret_text = fields
-        .remove("secret")
-        .ok_or(OtpAuthError::InvalidSecret)?;
+    let secret_text = fields.remove("secret").ok_or(OtpAuthError::InvalidSecret)?;
     if secret_text.is_empty() {
         return Err(OtpAuthError::InvalidSecret);
     }
@@ -130,7 +133,10 @@ pub fn parse_otpauth_uri(uri: &str) -> Result<Account, OtpAuthError> {
         return Err(OtpAuthError::InvalidParameter);
     }
 
-    let query_issuer = fields.get("issuer").map(|value| value.as_str()).filter(|v| !v.is_empty());
+    let query_issuer = fields
+        .get("issuer")
+        .map(|value| value.as_str())
+        .filter(|v| !v.is_empty());
     if let (Some(label_value), Some(query_value)) = (label_issuer, query_issuer)
         && label_value != query_value
     {
@@ -138,7 +144,11 @@ pub fn parse_otpauth_uri(uri: &str) -> Result<Account, OtpAuthError> {
     }
     let issuer = query_issuer.or(label_issuer).unwrap_or("");
 
-    let algorithm = match fields.get("algorithm").map(|value| value.as_str()).unwrap_or("SHA1") {
+    let algorithm = match fields
+        .get("algorithm")
+        .map(|value| value.as_str())
+        .unwrap_or("SHA1")
+    {
         value if value.eq_ignore_ascii_case("SHA1") => OtpAlgorithm::Sha1,
         value if value.eq_ignore_ascii_case("SHA256") => OtpAlgorithm::Sha256,
         value if value.eq_ignore_ascii_case("SHA512") => OtpAlgorithm::Sha512,
@@ -300,7 +310,8 @@ mod tests {
         assert_eq!(
             parse_otpauth_uri(
                 "otpauth://totp/First:alice?secret=JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP&issuer=Second"
-            ).err(),
+            )
+            .err(),
             Some(OtpAuthError::InvalidParameter)
         );
         assert_eq!(

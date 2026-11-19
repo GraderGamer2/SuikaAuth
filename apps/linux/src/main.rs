@@ -648,7 +648,11 @@ fn bind_parameter_fields(
     let update_period = update.clone();
     period.connect_selected_notify(move |_| update_period());
     let update_counter = update.clone();
-    counter.connect_sfn show_add_account_page(
+    counter.connect_selected_notify(move |_| update_counter());
+    update();
+}
+
+fn show_add_account_page(
     stack: &Stack,
     window: &ApplicationWindow,
     directory: PathBuf,
@@ -919,11 +923,6 @@ fn bind_parameter_fields(
                 ));
             }
         }
-    });
-
-    replace_page(stack, "add-account", &page);
-}
-}
     });
 
     replace_page(stack, "add-account", &page);
