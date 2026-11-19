@@ -56,7 +56,7 @@ Permanent GitHub Releases, signing, and provenance attestations will be designed
 - Android Gradle Plugin: 9.6.0 (built-in Kotlin; no separate kotlin-android plugin).
 - Gradle: 9.8.2.
 - JDK: 17.
-- Android platform: API 37.
+- Android platform: API 36 (stable package available in the runner SDK feed).
 - SDK Build Tools: 36.0.0.
 - NDK: 28.2.13676358.
 - Rust JNI targets: aarch64-linux-android and x86_64-linux-android.

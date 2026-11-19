@@ -22,7 +22,7 @@ The initial Android package will ship two 64-bit ABIs:
 
 Android expects native libraries inside the APK at `lib/<abi>/lib<name>.so`. Build the Rust shared library with `cargo-ndk`, placing the results under `android/app/src/main/jniLibs/`. Use explicit target/API-level inputs. CI pins the Rust stable toolchain, NDK 28.2.13676358, cargo-ndk 4.1.2, Gradle 9.8.2, and the Android Gradle Plugin 9.6.0.
 
-The initial Android build baseline is Android Gradle Plugin 9.6.0 with Gradle 9.8.2, SDK Build Tools 36.0.0, NDK 28.2.13676358, and JDK 17. The AGP 9.6.0 compatibility table lists these exact minimum/default tool versions and supports API level 37. AGP 9 enables built-in Kotlin support, so do not also apply `org.jetbrains.kotlin.android` to the application module. The CI workflow pins Gradle 9.8.2 and installs the SDK/NDK packages explicitly.
+The initial Android build baseline is Android Gradle Plugin 9.6.0 with Gradle 9.8.2, SDK Build Tools 36.0.0, NDK 28.2.13676358, and JDK 17. The AGP 9.6.0 compatibility table lists these exact minimum/default tool versions and supports up to API level 37. The project currently targets the stable API 36 SDK package because the runner's SDK package feed does not yet publish platforms;android-37. AGP 9 enables built-in Kotlin support, so do not also apply `org.jetbrains.kotlin.android` to the application module. The CI workflow pins Gradle 9.8.2 and installs the SDK/NDK packages explicitly.
 
 References: [AGP 9.6.0 compatibility notes](https://developer.android.com/build/releases/agp-9-6-0-release-notes) and [Migrate to built-in Kotlin](https://developer.android.com/build/migrate-to-built-in-kotlin).
 
