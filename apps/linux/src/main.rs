@@ -1460,6 +1460,7 @@ fn show_backup_export_page(
         export_for_export.set_sensitive(false);
         status_for_export.set_text("Deriving the backup key and encrypting…");
         let path = path.clone();
+        let directory_for_worker = directory_for_export.clone();
         let (sender, receiver) = mpsc::sync_channel(1);
         let worker = thread::Builder::new()
             .name("suika-backup-export".to_owned())
@@ -1475,7 +1476,7 @@ fn show_backup_export_page(
                     .map_err(|error| error.to_string())
                     .and_then(|backup| {
                         let length = backup.len();
-                        write_backup_file(&path, &backup).map(|()| length)
+                        write_backup_file(&path, &backup, &directory_for_worker).map(|()| length)
                     });
                 let _ = sender.send(result);
             });
@@ -1780,28 +1781,63 @@ fn read_backup_file(path: &Path) -> Result<Zeroizing<Vec<u8>>, String> {
     Ok(input)
 }
 
-fn write_backup_file(path: &Path, encrypted: &[u8]) -> Result<(), String> {
+fn resolve_backup_destination(path: &Path, directory: &Path) -> Result<PathBuf, String> {
     if !path.is_absolute() {
         return Err("Choose an absolute backup file destination.".to_owned());
-    }
-    if encrypted.len() > MAX_BACKUP_FILE_BYTES {
-        return Err("The encrypted backup exceeds the supported size limit.".to_owned());
     }
     let parent = path
         .parent()
         .ok_or_else(|| "The selected backup destination has no parent directory.".to_owned())?;
     let filename = path
         .file_name()
+        .ok_or_else(|| "The selected backup filename is invalid.".to_owned())?;
+    let canonical_parent = fs::canonicalize(parent)
+        .map_err(|_| "The selected backup destination directory could not be opened.")?;
+    let destination = canonical_parent.join(filename);
+
+    match fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.file_type().is_symlink() => {
+            return Err("Choose a backup destination that is not a symbolic link.".to_owned());
+        }
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(_) => return Err("The selected backup destination could not be inspected.".to_owned()),
+    }
+
+    let live_vault = fs::canonicalize(directory.join("vault.bin"))
+        .map_err(|_| "The live encrypted vault could not be resolved.")?;
+    if destination == live_vault {
+        return Err(
+            "The live vault file cannot be replaced by a backup. Choose a different filename."
+                .to_owned(),
+        );
+    }
+
+    Ok(destination)
+}
+
+fn write_backup_file(path: &Path, encrypted: &[u8], directory: &Path) -> Result<(), String> {
+    if encrypted.len() > MAX_BACKUP_FILE_BYTES {
+        return Err("The encrypted backup exceeds the supported size limit.".to_owned());
+    }
+    let destination = resolve_backup_destination(path, directory)?;
+    let parent = destination
+        .parent()
+        .ok_or_else(|| "The selected backup destination has no parent directory.".to_owned())?;
+    let filename = destination
+        .file_name()
         .and_then(|name| name.to_str())
         .ok_or_else(|| "The selected backup filename is invalid.".to_owned())?;
 
-    static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
     let mut last_error = None;
     for _ in 0..8 {
-        let sequence = TEMP_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let mut random = [0_u8; 16];
+        getrandom::fill(&mut random)
+            .map_err(|_| "The operating system random source is unavailable.")?;
         let temporary = parent.join(format!(
-            ".{filename}.suika-backup-{}-{sequence}.tmp",
-            std::process::id()
+            ".{filename}.suika-backup-{}-{:032x}.tmp",
+            std::process::id(),
+            u128::from_ne_bytes(random)
         ));
         let mut options = fs::OpenOptions::new();
         options.write(true).create_new(true).mode(0o600);
@@ -1823,7 +1859,7 @@ fn write_backup_file(path: &Path, encrypted: &[u8]) -> Result<(), String> {
             let _ = fs::remove_file(&temporary);
             return Err(message);
         }
-        if let Err(error) = fs::rename(&temporary, path) {
+        if let Err(error) = fs::rename(&temporary, &destination) {
             let _ = fs::remove_file(&temporary);
             return Err(error.to_string());
         }
@@ -2785,6 +2821,35 @@ mod tests {
         assert_eq!(selected_parameter(1, 1, 6, "1234"), Ok(1234));
         assert!(selected_parameter(0, 7, 0, "not a number").is_err());
         assert!(selected_parameter(1, 1, 99, "").is_err());
+    }
+
+    #[test]
+    fn backup_export_cannot_replace_the_live_vault_file() {
+        static NEXT_DIRECTORY: AtomicU64 = AtomicU64::new(0);
+        let directory = loop {
+            let sequence = NEXT_DIRECTORY.fetch_add(1, Ordering::Relaxed);
+            let candidate = std::env::temp_dir().join(format!(
+                "suika-backup-path-test-{}-{sequence}",
+                std::process::id()
+            ));
+            match fs::create_dir(&candidate) {
+                Ok(()) => break candidate,
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(error) => panic!("test directory should be created: {error}"),
+            }
+        };
+        let vault_path = directory.join("vault.bin");
+        fs::write(&vault_path, b"live vault contents")
+            .expect("test vault file should be written");
+
+        let result = write_backup_file(&vault_path, b"encrypted backup bytes", &directory);
+        assert!(result.is_err());
+        assert_eq!(
+            fs::read(&vault_path).expect("live vault should remain readable"),
+            b"live vault contents"
+        );
+
+        fs::remove_dir_all(&directory).expect("test directory should be removed");
     }
 
     #[test]

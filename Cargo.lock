@@ -932,6 +932,7 @@ name = "suika-authenticator-linux"
 version = "0.1.0"
 dependencies = [
  "gdk-pixbuf",
+ "getrandom",
  "gtk4",
  "quircs",
  "suika-core",
