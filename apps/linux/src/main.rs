@@ -40,7 +40,7 @@ const INACTIVITY_LOCK_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 
 thread_local! {
     static LAST_ACTIVITY: Cell<Instant> = Cell::new(Instant::now());
-    static OTP_CLIPBOARD_GENERATION: Cell<u64> = Cell::new(0);
+    static OTP_CLIPBOARD_GENERATION: Cell<u64> = const { Cell::new(0) };
 }
 
 fn record_activity() {
