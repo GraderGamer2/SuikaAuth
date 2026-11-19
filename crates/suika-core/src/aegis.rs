@@ -376,12 +376,13 @@ fn decrypt_aes_gcm(
 
     let cipher = Aes256Gcm::new_from_slice(key)
         .map_err(|_| AegisImportError::InvalidEncryptionParameters)?;
-    let nonce = Nonce::from_slice(&nonce);
+    let nonce = Nonce::try_from(nonce.as_slice())
+        .map_err(|_| AegisImportError::InvalidEncryptionParameters)?;
     let mut authenticated_ciphertext = Zeroizing::new(ciphertext_without_separate_tag.to_vec());
     authenticated_ciphertext.extend_from_slice(&tag);
 
     cipher
-        .decrypt(nonce, authenticated_ciphertext.as_slice())
+        .decrypt(&nonce, authenticated_ciphertext.as_slice())
         .map(Zeroizing::new)
         .map_err(|_| AegisImportError::WrongPassword)
 }
@@ -533,7 +534,6 @@ fn nonempty_label(value: String) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use base64::Engine as _;
 
     const SECRET: &str = "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP";
     const GROUP_ID: &str = "d7bf5f65-8f8b-45a0-8f9f-fc88793e9bc1";
@@ -557,9 +557,9 @@ mod tests {
         plaintext: &[u8],
     ) -> (String, String) {
         let cipher = Aes256Gcm::new_from_slice(key).expect("AES key size should be valid");
-        let nonce = Nonce::from_slice(&nonce_bytes);
+        let nonce = Nonce::try_from(&nonce_bytes[..]).expect("test nonce must be 12 bytes");
         let encrypted = cipher
-            .encrypt(nonce, plaintext)
+            .encrypt(&nonce, plaintext)
             .expect("test AES-GCM encryption should succeed");
         let split = encrypted.len() - AES_TAG_BYTES;
         (
@@ -592,9 +592,10 @@ mod tests {
         let database = database_json();
         let database_cipher =
             Aes256Gcm::new_from_slice(&master_key[..]).expect("AES master key should be valid");
-        let database_nonce = Nonce::from_slice(&[0x22_u8; AES_NONCE_BYTES]);
+        let database_nonce = Nonce::try_from(&[0x22_u8; AES_NONCE_BYTES][..])
+            .expect("test database nonce must be 12 bytes");
         let encrypted_database = database_cipher
-            .encrypt(database_nonce, database.as_slice())
+            .encrypt(&database_nonce, database.as_slice())
             .expect("test database encryption should succeed");
         let split = encrypted_database.len() - AES_TAG_BYTES;
         let database_ciphertext = BASE64.encode(&encrypted_database[..split]);

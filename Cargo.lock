@@ -21,7 +21,7 @@ dependencies = [
  "cipher",
  "cpubits",
  "cpufeatures",
- "zeroize"
+ "zeroize",
 ]
 
 [[package]]
@@ -36,7 +36,7 @@ dependencies = [
  "ctr",
  "ctutils",
  "ghash",
- "zeroize"
+ "zeroize",
 ]
 
 [[package]]
@@ -383,6 +383,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2eecf2d5dc9b66b732b97707a0210906b1d30523eb773193ab777c0c84b3e8d5"
 dependencies = [
  "polyval",
+ "zeroize",
 ]
 
 [[package]]
@@ -756,7 +757,7 @@ dependencies = [
  "cpubits",
  "cpufeatures",
  "universal-hash",
- "zeroize"
+ "zeroize",
 ]
 
 [[package]]
@@ -785,7 +786,7 @@ checksum = "d71dee9e56835add6f9c26227e6c690b19eda9414f5affc666c3ec833ba140dc"
 dependencies = [
  "num-derive",
  "num-traits",
- "thiserror 2.0.17",
+ "thiserror",
 ]
 
 [[package]]
@@ -952,7 +953,7 @@ dependencies = [
  "serde_json",
  "sha1",
  "sha2",
- "zeroize"
+ "zeroize",
 ]
 
 [[package]]
@@ -1002,7 +1003,7 @@ version = "2.0.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f63587ca0f12b72a0600bcba1d40081f830876000bb46dd2337a3051618f4fc8"
 dependencies = [
- "thiserror-impl 2.0.17",
+ "thiserror-impl",
 ]
 
 [[package]]
