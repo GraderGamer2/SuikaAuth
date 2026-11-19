@@ -105,7 +105,7 @@ pub fn parse_otpauth_uri(uri: &str) -> Result<Account, OtpAuthError> {
             return Err(OtpAuthError::InvalidUri);
         }
         let key = percent_decode(encoded_key, true)?.to_ascii_lowercase();
-        let value = Zeroizing::new(percent_decode(encoded_value, true)?);
+        let value = percent_decode(encoded_value, true)?;
         if key.is_empty() || fields.insert(key, value).is_some() {
             return Err(OtpAuthError::InvalidParameter);
         }
@@ -115,9 +115,8 @@ pub fn parse_otpauth_uri(uri: &str) -> Result<Account, OtpAuthError> {
     if secret_text.is_empty() {
         return Err(OtpAuthError::InvalidSecret);
     }
-    let secret = Zeroizing::new(
-        decode_base32(secret_text.as_str()).map_err(|_| OtpAuthError::InvalidSecret)?,
-    );
+    let secret =
+        decode_base32(secret_text.as_str()).map_err(|_| OtpAuthError::InvalidSecret)?;
     if !(MIN_SECRET_BYTES..=MAX_SECRET_BYTES).contains(&secret.len()) {
         return Err(OtpAuthError::InvalidSecret);
     }
