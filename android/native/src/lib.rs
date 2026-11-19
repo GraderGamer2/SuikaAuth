@@ -932,12 +932,8 @@ mod tests {
         .expect("source account should be added");
 
         let backup_password = b"separate backup password";
-        let backup = export_backup_with_params(
-            handle as jlong,
-            backup_password,
-            params,
-        )
-        .expect("portable backup should be exported");
+        let backup = export_backup_with_params(handle as jlong, backup_password, params)
+            .expect("portable backup should be exported");
         Backup::validate_serialized(&backup)
             .expect("export should follow the portable backup format");
 
@@ -1000,13 +996,13 @@ mod tests {
         assert_eq!(in_memory.label(), "backup account");
         assert_eq!(in_memory.algorithm(), OtpAlgorithm::Sha256);
         assert_eq!(in_memory.digits(), 8);
-        assert_eq!(
-            in_memory.mode(),
-            AccountMode::Totp { period_seconds: 45 }
-        );
+        assert_eq!(in_memory.mode(), AccountMode::Totp { period_seconds: 45 });
 
         let persisted = Vault::unlock(
-            &session.store.load().expect("restored encrypted vault should load"),
+            &session
+                .store
+                .load()
+                .expect("restored encrypted vault should load"),
             b"live vault password",
         )
         .expect("live vault password should still unlock after restore");
