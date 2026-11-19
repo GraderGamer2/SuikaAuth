@@ -306,6 +306,14 @@ fn import_aegis_file(
 }
 
 fn export_backup(handle: jlong, password: &[u8]) -> Result<Vec<u8>, String> {
+    export_backup_with_params(handle, password, KdfParams::PRODUCTION)
+}
+
+fn export_backup_with_params(
+    handle: jlong,
+    password: &[u8],
+    params: KdfParams,
+) -> Result<Vec<u8>, String> {
     let handle =
         u64::try_from(handle).map_err(|_| "Native session handle is invalid.".to_owned())?;
     let plaintext = {
@@ -318,7 +326,7 @@ fn export_backup(handle: jlong, password: &[u8]) -> Result<Vec<u8>, String> {
         Zeroizing::new(session.vault.plaintext().to_vec())
     };
 
-    Backup::create(&plaintext, password, KdfParams::PRODUCTION).map_err(|error| error.to_string())
+    Backup::create(&plaintext, password, params).map_err(|error| error.to_string())
 }
 
 fn restore_backup(handle: jlong, encoded_backup: &[u8], password: &[u8]) -> Result<usize, String> {
@@ -889,6 +897,130 @@ mod tests {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.0);
         }
+    }
+
+    #[test]
+    fn backup_export_and_restore_replace_the_persisted_native_vault() {
+        let temporary = TestDirectory::new();
+        let store =
+            VaultStore::open(temporary.0.join(APP_DIRECTORY)).expect("vault store should open");
+        let accounts = AccountDatabase::new();
+        let plaintext = accounts.encode().expect("account database should encode");
+        let params = KdfParams::new(64 * 1024, 1, 1).expect("test KDF profile");
+        let (serialized, vault) = Vault::create_session(&plaintext, b"live vault password", params)
+            .expect("encrypted vault and unlocked session should be created");
+        store
+            .save_new(&serialized)
+            .expect("initial vault should be saved");
+        let handle = insert_session(NativeSession {
+            store,
+            vault,
+            accounts,
+        })
+        .expect("native session handle should be allocated");
+
+        let secret = b"JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP";
+        add_totp(
+            handle as jlong,
+            "Backup issuer".to_owned(),
+            "backup account".to_owned(),
+            secret,
+            2,
+            8,
+            45,
+        )
+        .expect("source account should be added");
+
+        let backup_password = b"separate backup password";
+        let backup = export_backup_with_params(
+            handle as jlong,
+            backup_password,
+            params,
+        )
+        .expect("portable backup should be exported");
+        Backup::validate_serialized(&backup)
+            .expect("export should follow the portable backup format");
+
+        add_totp(
+            handle as jlong,
+            "Temporary issuer".to_owned(),
+            "current-only account".to_owned(),
+            b"JBSWY3DPEHPK3PXP",
+            1,
+            6,
+            30,
+        )
+        .expect("temporary current account should be added");
+
+        let before_failed_restore = {
+            let registry = sessions()
+                .lock()
+                .expect("session registry should remain available");
+            let session = registry
+                .get(&handle)
+                .expect("native session should remain active");
+            assert_eq!(session.accounts.len(), 2);
+            session
+                .store
+                .load()
+                .expect("current encrypted vault should load")
+        };
+
+        assert!(restore_backup(handle as jlong, &backup, b"wrong backup password").is_err());
+        {
+            let registry = sessions()
+                .lock()
+                .expect("session registry should remain available");
+            let session = registry
+                .get(&handle)
+                .expect("native session should remain active after failed restore");
+            assert_eq!(session.accounts.len(), 2);
+            assert_eq!(
+                session.store.load().expect("vault should still load"),
+                before_failed_restore,
+                "a rejected backup must not change the persisted vault"
+            );
+        }
+
+        assert_eq!(
+            restore_backup(handle as jlong, &backup, backup_password)
+                .expect("valid backup should replace the active account set"),
+            1
+        );
+
+        let mut registry = sessions()
+            .lock()
+            .expect("session registry should remain available");
+        let session = registry
+            .remove(&handle)
+            .expect("test session should still exist");
+        assert_eq!(session.accounts.len(), 1);
+        let in_memory = &session.accounts.accounts()[0];
+        assert_eq!(in_memory.issuer(), "Backup issuer");
+        assert_eq!(in_memory.label(), "backup account");
+        assert_eq!(in_memory.algorithm(), OtpAlgorithm::Sha256);
+        assert_eq!(in_memory.digits(), 8);
+        assert_eq!(
+            in_memory.mode(),
+            AccountMode::Totp { period_seconds: 45 }
+        );
+
+        let persisted = Vault::unlock(
+            &session.store.load().expect("restored encrypted vault should load"),
+            b"live vault password",
+        )
+        .expect("live vault password should still unlock after restore");
+        let restored = AccountDatabase::decode(persisted.plaintext())
+            .expect("restored account database should decode");
+        assert_eq!(restored.len(), 1);
+        assert_eq!(restored.accounts()[0].issuer(), "Backup issuer");
+        assert_eq!(restored.accounts()[0].label(), "backup account");
+        assert_eq!(restored.accounts()[0].algorithm(), OtpAlgorithm::Sha256);
+        assert_eq!(restored.accounts()[0].digits(), 8);
+        assert_eq!(
+            restored.accounts()[0].mode(),
+            AccountMode::Totp { period_seconds: 45 }
+        );
     }
 
     #[test]
