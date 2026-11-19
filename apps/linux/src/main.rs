@@ -1653,6 +1653,7 @@ fn show_backup_restore_page(
 
         let status_for_completion = status_for_restore.clone();
         let restore_for_completion = restore_for_restore.clone();
+        let cancel_for_completion = cancel_for_restore.clone();
         let directory_for_completion = directory_for_restore.clone();
         let unlocked_for_completion = unlocked_for_restore.clone();
         let stack_for_completion = stack_weak.clone();
@@ -1661,7 +1662,7 @@ fn show_backup_restore_page(
             match receiver.try_recv() {
                 Ok(result) => {
                     restore_for_completion.set_sensitive(true);
-                    cancel_for_restore.set_sensitive(true);
+                    cancel_for_completion.set_sensitive(true);
                     match result {
                         Ok(plaintext) => {
                             let persisted = persist_backup_restore(
@@ -1699,7 +1700,7 @@ fn show_backup_restore_page(
                 Err(TryRecvError::Empty) => ControlFlow::Continue,
                 Err(TryRecvError::Disconnected) => {
                     restore_for_completion.set_sensitive(true);
-                    cancel_for_restore.set_sensitive(true);
+                    cancel_for_completion.set_sensitive(true);
                     status_for_completion.set_text("The backup restore worker stopped unexpectedly.");
                     ControlFlow::Break
                 }
