@@ -9,8 +9,8 @@ use std::collections::HashMap;
 use std::fmt;
 
 use aes_gcm::{
-    aead::{Aead, KeyInit},
     Aes256Gcm, Nonce,
+    aead::{Aead, KeyInit},
 };
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use serde::de::{self, Visitor};
@@ -246,11 +246,8 @@ pub fn import_aegis_export(
             if export.header.slots.is_none() || export.header.params.is_none() {
                 return Err(AegisImportError::InvalidFile);
             }
-            let database_bytes = decrypt_aegis_database(
-                encoded_database.as_bytes(),
-                &export.header,
-                password,
-            )?;
+            let database_bytes =
+                decrypt_aegis_database(encoded_database.as_bytes(), &export.header, password)?;
             serde_json::from_slice::<AegisDatabase>(&database_bytes)
                 .map_err(|_| AegisImportError::InvalidFile)?
         }
@@ -267,7 +264,10 @@ fn decrypt_aegis_database(
     if encoded_database.len() > MAX_BASE64_BYTES {
         return Err(AegisImportError::InputTooLarge);
     }
-    let parameters = header.params.as_ref().ok_or(AegisImportError::InvalidFile)?;
+    let parameters = header
+        .params
+        .as_ref()
+        .ok_or(AegisImportError::InvalidFile)?;
     validate_nonce_and_tag(parameters)?;
     let encrypted_database = Zeroizing::new(
         BASE64
@@ -284,7 +284,10 @@ fn decrypt_aegis_database(
     if slots.len() > MAX_SLOTS {
         return Err(AegisImportError::InvalidEncryptionParameters);
     }
-    let password_slots = slots.iter().filter(|slot| slot.kind == 1).collect::<Vec<_>>();
+    let password_slots = slots
+        .iter()
+        .filter(|slot| slot.kind == 1)
+        .collect::<Vec<_>>();
     if password_slots.is_empty() {
         return Err(AegisImportError::NoPasswordSlot);
     }
@@ -294,10 +297,19 @@ fn decrypt_aegis_database(
 
     let mut master_key: Option<Zeroizing<Vec<u8>>> = None;
     for slot in password_slots {
-        let n = slot.n.ok_or(AegisImportError::InvalidEncryptionParameters)?;
-        let r = slot.r.ok_or(AegisImportError::InvalidEncryptionParameters)?;
-        let p = slot.p.ok_or(AegisImportError::InvalidEncryptionParameters)?;
-        let salt_text = slot.salt.as_deref().ok_or(AegisImportError::InvalidEncryptionParameters)?;
+        let n = slot
+            .n
+            .ok_or(AegisImportError::InvalidEncryptionParameters)?;
+        let r = slot
+            .r
+            .ok_or(AegisImportError::InvalidEncryptionParameters)?;
+        let p = slot
+            .p
+            .ok_or(AegisImportError::InvalidEncryptionParameters)?;
+        let salt_text = slot
+            .salt
+            .as_deref()
+            .ok_or(AegisImportError::InvalidEncryptionParameters)?;
         let salt = decode_hex(salt_text)?;
         let wrapped_key = decode_hex(&slot.key)?;
         validate_nonce_and_tag(&slot.key_params)?;
@@ -340,11 +352,7 @@ fn decrypt_aegis_database(
         scrypt::scrypt(password, &salt, &params, &mut derived_key[..])
             .map_err(|_| AegisImportError::InvalidEncryptionParameters)?;
 
-        if let Ok(key) = decrypt_aes_gcm(
-            &derived_key[..],
-            &wrapped_key,
-            &slot.key_params,
-        ) {
+        if let Ok(key) = decrypt_aes_gcm(&derived_key[..], &wrapped_key, &slot.key_params) {
             if key.len() == AES_KEY_BYTES {
                 master_key = Some(key);
                 break;
@@ -378,9 +386,7 @@ fn decrypt_aes_gcm(
         .map_err(|_| AegisImportError::WrongPassword)
 }
 
-fn validate_nonce_and_tag(
-    parameters: &AegisCipherParameters,
-) -> Result<(), AegisImportError> {
+fn validate_nonce_and_tag(parameters: &AegisCipherParameters) -> Result<(), AegisImportError> {
     let nonce = decode_hex(&parameters.nonce)?;
     let tag = decode_hex(&parameters.tag)?;
     if nonce.len() != AES_NONCE_BYTES || tag.len() != AES_TAG_BYTES {
@@ -411,9 +417,7 @@ fn hex_nibble(value: u8) -> Option<u8> {
     }
 }
 
-fn convert_aegis_database(
-    database: AegisDatabase,
-) -> Result<AegisImportResult, AegisImportError> {
+fn convert_aegis_database(database: AegisDatabase) -> Result<AegisImportResult, AegisImportError> {
     if !(1..=3).contains(&database.version) {
         return Err(AegisImportError::UnsupportedVersion);
     }
@@ -586,8 +590,8 @@ mod tests {
         let (wrapped_key, wrapped_key_tag) =
             encrypt_part(&derived_key[..], [0x11; AES_NONCE_BYTES], &master_key[..]);
         let database = database_json();
-        let database_cipher = Aes256Gcm::new_from_slice(&master_key[..])
-            .expect("AES master key should be valid");
+        let database_cipher =
+            Aes256Gcm::new_from_slice(&master_key[..]).expect("AES master key should be valid");
         let database_nonce = Nonce::from_slice(&[0x22_u8; AES_NONCE_BYTES]);
         let encrypted_database = database_cipher
             .encrypt(database_nonce, database.as_slice())
@@ -615,25 +619,32 @@ mod tests {
             )
             .into_bytes(),
         );
-        let imported = import_aegis_export(&export, None)
-            .expect("plaintext Aegis export should import");
+        let imported =
+            import_aegis_export(&export, None).expect("plaintext Aegis export should import");
         assert_eq!(imported.accounts.len(), 2);
         assert_eq!(imported.skipped_unsupported, 1);
         assert_eq!(imported.accounts[0].issuer(), "Example");
         assert_eq!(imported.accounts[0].label(), "alice@example.com");
         assert_eq!(imported.accounts[0].algorithm(), OtpAlgorithm::Sha256);
         assert_eq!(imported.accounts[0].digits(), 8);
-        assert_eq!(imported.accounts[0].mode(), crate::accounts::AccountMode::Totp { period_seconds: 60 });
+        assert_eq!(
+            imported.accounts[0].mode(),
+            crate::accounts::AccountMode::Totp { period_seconds: 60 }
+        );
         assert_eq!(imported.accounts[0].group(), Some("Personal"));
         assert!(imported.accounts[0].is_favorite());
-        assert_eq!(imported.accounts[1].mode(), crate::accounts::AccountMode::Hotp { counter: 9 });
+        assert_eq!(
+            imported.accounts[1].mode(),
+            crate::accounts::AccountMode::Hotp { counter: 9 }
+        );
         assert_eq!(imported.accounts[1].group(), Some("Personal"));
     }
 
     #[test]
     fn imports_official_aegis_plaintext_fixture() {
-        let imported = import_aegis_export(include_bytes!("../tests/fixtures/aegis_plain.json"), None)
-            .expect("official plaintext Aegis fixture should import");
+        let imported =
+            import_aegis_export(include_bytes!("../tests/fixtures/aegis_plain.json"), None)
+                .expect("official plaintext Aegis fixture should import");
         assert_eq!(imported.accounts.len(), 6);
         assert_eq!(imported.skipped_unsupported, 1);
 
@@ -642,14 +653,20 @@ mod tests {
         assert_eq!(first.label(), "Mason");
         assert_eq!(first.algorithm(), OtpAlgorithm::Sha1);
         assert_eq!(first.digits(), 6);
-        assert_eq!(first.mode(), crate::accounts::AccountMode::Totp { period_seconds: 30 });
+        assert_eq!(
+            first.mode(),
+            crate::accounts::AccountMode::Totp { period_seconds: 30 }
+        );
 
         let last = &imported.accounts[5];
         assert_eq!(last.issuer(), "WWE");
         assert_eq!(last.label(), "Mason");
         assert_eq!(last.algorithm(), OtpAlgorithm::Sha512);
         assert_eq!(last.digits(), 8);
-        assert_eq!(last.mode(), crate::accounts::AccountMode::Hotp { counter: 10_300 });
+        assert_eq!(
+            last.mode(),
+            crate::accounts::AccountMode::Hotp { counter: 10_300 }
+        );
     }
 
     #[test]
@@ -666,10 +683,8 @@ mod tests {
     #[test]
     fn imports_password_encrypted_aegis_export() {
         let export = encrypted_export();
-        let imported = import_aegis_export(
-            &export,
-            Some(b"correct horse battery staple"),
-        ).expect("encrypted Aegis export should import");
+        let imported = import_aegis_export(&export, Some(b"correct horse battery staple"))
+            .expect("encrypted Aegis export should import");
         assert_eq!(imported.accounts.len(), 2);
         assert_eq!(imported.accounts[0].label(), "alice@example.com");
     }
@@ -726,12 +741,9 @@ mod tests {
     #[test]
     fn rejects_excessive_scrypt_cost_before_running_the_kdf() {
         let export = encrypted_export();
-        let export_text = String::from_utf8(export.to_vec())
-            .expect("test Aegis export should be valid UTF-8");
-        let modified = Zeroizing::new(export_text.replace(
-            r#""n":32768"#,
-            r#""n":1048576"#,
-        ));
+        let export_text =
+            String::from_utf8(export.to_vec()).expect("test Aegis export should be valid UTF-8");
+        let modified = Zeroizing::new(export_text.replace(r#""n":32768"#, r#""n":1048576"#));
         assert_eq!(
             import_aegis_export(modified.as_bytes(), Some(b"correct horse battery staple")).err(),
             Some(AegisImportError::InvalidEncryptionParameters)

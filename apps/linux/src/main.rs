@@ -1243,12 +1243,12 @@ fn show_aegis_import_page(
 
 fn load_aegis_export(path: &Path, password: &[u8]) -> Result<AegisImportResult, String> {
     const MAX_EXPORT_BYTES: u64 = 16 * 1024 * 1024;
-    let metadata = fs::metadata(path).map_err(|_| "The selected Aegis export could not be opened.")?;
+    let metadata =
+        fs::metadata(path).map_err(|_| "The selected Aegis export could not be opened.")?;
     if !metadata.is_file() || metadata.len() > MAX_EXPORT_BYTES {
         return Err("Choose a regular Aegis JSON export no larger than 16 MiB.".to_owned());
     }
-    let file = fs::File::open(path)
-        .map_err(|_| "The selected Aegis export could not be read.")?;
+    let file = fs::File::open(path).map_err(|_| "The selected Aegis export could not be read.")?;
     let mut input = Zeroizing::new(Vec::with_capacity(metadata.len() as usize));
     let bytes_read = file
         .take(metadata.len())
@@ -1260,7 +1260,11 @@ fn load_aegis_export(path: &Path, password: &[u8]) -> Result<AegisImportResult, 
 
     import_aegis_export(
         &input,
-        if password.is_empty() { None } else { Some(password) },
+        if password.is_empty() {
+            None
+        } else {
+            Some(password)
+        },
     )
     .map_err(|error| error.to_string())
 }
@@ -1276,7 +1280,9 @@ fn persist_aegis_import(
         return Err(if skipped == 0 {
             "The Aegis export contains no accounts.".to_owned()
         } else {
-            format!("No supported TOTP/HOTP accounts were found; {skipped} unsupported entries were skipped.")
+            format!(
+                "No supported TOTP/HOTP accounts were found; {skipped} unsupported entries were skipped."
+            )
         });
     }
 
@@ -1286,10 +1292,11 @@ fn persist_aegis_import(
         .ok_or_else(|| "The vault is locked. Unlock it before importing accounts.".to_owned())?;
 
     let existing = vault.accounts.encode().map_err(|error| error.to_string())?;
-    let mut candidate =
-        AccountDatabase::decode(&existing).map_err(|error| error.to_string())?;
+    let mut candidate = AccountDatabase::decode(&existing).map_err(|error| error.to_string())?;
     for account in imported.accounts {
-        candidate.insert(account).map_err(|error| error.to_string())?;
+        candidate
+            .insert(account)
+            .map_err(|error| error.to_string())?;
     }
 
     let store = VaultStore::open(directory).map_err(|error| error.to_string())?;
@@ -1834,36 +1841,30 @@ fn show_accounts_page(
         let unlocked_for_file = unlocked_for_import.clone();
         let dialog_parent = window_for_import.upgrade();
         if let Some(parent) = dialog_parent {
-            file_dialog.open(
-                Some(&parent),
-                None::<&gio::Cancellable>,
-                move |result| {
-                    let Ok(file) = result else {
-                        return;
-                    };
-                    let Some(path) = file.path() else {
-                        if let Some(window) = window_weak.upgrade() {
-                            show_message_dialog(
-                                &window,
-                                "Import unavailable",
-                                "Choose a local Aegis JSON export.",
-                            );
-                        }
-                        return;
-                    };
-                    if let (Some(stack), Some(window)) =
-                        (stack_weak.upgrade(), window_weak.upgrade())
-                    {
-                        show_aegis_import_page(
-                            &stack,
+            file_dialog.open(Some(&parent), None::<&gio::Cancellable>, move |result| {
+                let Ok(file) = result else {
+                    return;
+                };
+                let Some(path) = file.path() else {
+                    if let Some(window) = window_weak.upgrade() {
+                        show_message_dialog(
                             &window,
-                            directory_for_file.clone(),
-                            unlocked_for_file.clone(),
-                            path,
+                            "Import unavailable",
+                            "Choose a local Aegis JSON export.",
                         );
                     }
-                },
-            );
+                    return;
+                };
+                if let (Some(stack), Some(window)) = (stack_weak.upgrade(), window_weak.upgrade()) {
+                    show_aegis_import_page(
+                        &stack,
+                        &window,
+                        directory_for_file.clone(),
+                        unlocked_for_file.clone(),
+                        path,
+                    );
+                }
+            });
         }
     });
 
