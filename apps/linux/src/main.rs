@@ -2839,8 +2839,7 @@ mod tests {
             }
         };
         let vault_path = directory.join("vault.bin");
-        fs::write(&vault_path, b"live vault contents")
-            .expect("test vault file should be written");
+        fs::write(&vault_path, b"live vault contents").expect("test vault file should be written");
 
         let result = write_backup_file(&vault_path, b"encrypted backup bytes", &directory);
         assert!(result.is_err());
