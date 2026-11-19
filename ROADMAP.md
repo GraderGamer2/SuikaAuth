@@ -42,6 +42,7 @@ Status: **Milestone 7 — Encrypted backup and restore (Linux/Android implementa
 ## 4. Linux application
 
 - [x] Add the initial native GTK4 Linux frontend.
+- [x] Redesign the Linux GTK4 account overview as a split-pane account navigator and selected-account detail view; move import and backup/restore actions into a compact overflow menu.
 - [x] Create and manage ~/.SuikaAuthenticator/ with restrictive permissions through the shared vault store.
 - [x] Add first-run vault creation and password unlocking.
 - [x] Add account list, code display, countdown, and click-to-copy.
