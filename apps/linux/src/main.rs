@@ -70,12 +70,11 @@ fn copy_otp_to_clipboard(clipboard: &gtk::gdk::Clipboard, code: &str) {
             clipboard.read_text_async(None::<&gio::Cancellable>, move |result| {
                 let is_current =
                     OTP_CLIPBOARD_GENERATION.with(|current| current.get() == generation);
-                let matches_otp = result
-                    .is_ok_and(|text| text.as_deref() == Some(expected.as_str()));
+                let matches_otp =
+                    result.is_ok_and(|text| text.as_deref() == Some(expected.as_str()));
 
                 if is_current && clipboard_for_read.is_local() && matches_otp {
-                    let _ = clipboard_for_read
-                        .set_content(None::<&gtk::gdk::ContentProvider>);
+                    let _ = clipboard_for_read.set_content(None::<&gtk::gdk::ContentProvider>);
                 }
             });
         }
@@ -2908,7 +2907,6 @@ fn show_accounts_page(
                         .unwrap_or_else(|_| "------".to_owned()),
                 ));
                 code.set_xalign(0.0);
-                code.set_selectable(true);
                 code.add_css_class("monospace");
                 code.add_css_class("title-2");
 

@@ -221,7 +221,6 @@ class MainActivity : FragmentActivity() {
         super.onStart()
         activityStarted = true
         handler.removeCallbacks(backgroundLock)
-        handler.removeCallbacks(otpClipboardExpiry)
         handler.post(otpClipboardExpiry)
         if (activeHandle == null && vaultExists == true && content.childCount > 0) {
             renderAuthentication(existingVault = true)
@@ -229,6 +228,13 @@ class MainActivity : FragmentActivity() {
             handler.removeCallbacks(accountRefresh)
             handler.post(accountRefresh)
             resetInactivityTimer()
+        }
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus && ::appState.isInitialized) {
+            handler.post(otpClipboardExpiry)
         }
     }
 

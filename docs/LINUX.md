@@ -45,6 +45,6 @@ The inactivity timer is reset by pointer movement, pointer/touch clicks, keyboar
 
 ## OTP clipboard handling
 
-Copied TOTP and HOTP values are cleared after 30 seconds only if GDK still reports that the clipboard is locally owned by SuikaAuthenticator and its text still matches the copied code. A later OTP copy supersedes the earlier expiry callback, and content copied by another application is never cleared. The comparison buffer is zeroized when the callback finishes. This is best-effort clipboard hygiene; it does not prevent another process from reading a code before it expires.
+The OTP display is not independently selectable; TOTP and HOTP values are copied through their explicit buttons so every application-mediated copy uses the guarded path. Copied values are cleared after 30 seconds only if GDK still reports that the clipboard is locally owned by SuikaAuthenticator and its text still matches the copied code. A later OTP copy supersedes the earlier expiry callback, and content copied by another application is never cleared. The comparison buffer is zeroized when the callback finishes. This is best-effort clipboard hygiene; it does not prevent another process from reading a code before it expires.
 
 References: [GDK Clipboard ownership](https://docs.gtk.org/gdk4/method.Clipboard.is_local.html) and [GDK Clipboard text reads](https://docs.gtk.org/gdk4/method.Clipboard.read_text_async.html).
