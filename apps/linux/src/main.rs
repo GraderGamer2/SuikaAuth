@@ -1185,24 +1185,31 @@ fn show_aegis_import_page(
             return;
         }
 
+        let status_for_completion = status_for_import.clone();
+        let import_for_completion = import_for_import.clone();
+        let directory_for_completion = directory_for_import.clone();
+        let unlocked_for_completion = unlocked_for_import.clone();
+        let stack_for_completion = stack_weak.clone();
+        let window_for_completion = window_weak.clone();
         let mut completed = Some(move |result: Result<AegisImportResult, String>| {
-            import_for_import.set_sensitive(true);
+            import_for_completion.set_sensitive(true);
             match result {
                 Ok(imported_accounts) => {
                     match persist_aegis_import(
-                        &unlocked_for_import,
-                        &directory_for_import,
+                        &unlocked_for_completion,
+                        &directory_for_completion,
                         imported_accounts,
                     ) {
                         Ok((imported, skipped)) => {
-                            if let (Some(stack), Some(window)) =
-                                (stack_weak.upgrade(), window_weak.upgrade())
-                            {
+                            if let (Some(stack), Some(window)) = (
+                                stack_for_completion.upgrade(),
+                                window_for_completion.upgrade(),
+                            ) {
                                 show_accounts_page(
                                     &stack,
                                     &window,
-                                    directory_for_import.clone(),
-                                    unlocked_for_import.clone(),
+                                    directory_for_completion.clone(),
+                                    unlocked_for_completion.clone(),
                                 );
                                 show_message_dialog(
                                     &window,
@@ -1213,10 +1220,10 @@ fn show_aegis_import_page(
                                 );
                             }
                         }
-                        Err(message) => status_for_import.set_text(&message),
+                        Err(message) => status_for_completion.set_text(&message),
                     }
                 }
-                Err(message) => status_for_import.set_text(&message),
+                Err(message) => status_for_completion.set_text(&message),
             }
         });
         glib::source::timeout_add_local(Duration::from_millis(100), move || {
