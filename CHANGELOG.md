@@ -3,6 +3,7 @@
 All notable project changes will be recorded here.
 
 ## Unreleased
+- Read Android dropdown selections on the main thread before dispatching enrollment to the JNI worker, avoiding cross-thread access to View widgets.
 - Replaced Linux Add/Edit free-text OTP configuration fields with dropdowns for TOTP/HOTP mode, HMAC algorithm, code length, and common TOTP-period/HOTP-counter presets. A clearly labeled Custom… choice retains support for non-preset values; added selector-mapping regression tests.
 - Added Android TOTP enrollment dropdowns for HMAC-SHA-1/SHA-256/SHA-512, 6/7/8 digits, and common periods instead of hardcoding SHA-1, six digits, and 30 seconds.
 - Added configurable Android background auto-lock: immediately or after 1, 3, 5, or 10 minutes. The preference stays under the app-private SuikaAuthenticator data root; immediate locking remains the default, and a pending lock is canceled when the app returns to the foreground in time.

@@ -272,14 +272,17 @@ class MainActivity : Activity() {
                 status.text = "Enter an account name and Base32 secret."
                 return@setOnClickListener
             }
+            val selectedAlgorithm = algorithm.selectedItemPosition + 1
+            val selectedDigits = intArrayOf(6, 7, 8).getOrNull(digits.selectedItemPosition)
+            val selectedPeriod = totpPeriodChoices.getOrNull(period.selectedItemPosition)
+            if (selectedDigits == null || selectedPeriod == null) {
+                encodedSecret.fill(0)
+                status.text = "Choose valid OTP settings before adding the account."
+                return@setOnClickListener
+            }
             add.isEnabled = false
             worker.execute {
                 val result = runCatching {
-                    val selectedAlgorithm = algorithm.selectedItemPosition + 1
-                    val selectedDigits = intArrayOf(6, 7, 8).getOrNull(digits.selectedItemPosition)
-                        ?: error("Choose a code length of 6, 7, or 8 digits.")
-                    val selectedPeriod = totpPeriodChoices.getOrNull(period.selectedItemPosition)
-                        ?: error("Choose a valid TOTP period.")
                     NativeBridge.nativeAddTotp(
                         handle,
                         issuerText,
