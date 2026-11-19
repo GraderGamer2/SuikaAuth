@@ -1709,7 +1709,19 @@ class MainActivity : FragmentActivity() {
             return
         }
 
-        // Clear only the clip whose metadata still identifies it as ours.
+        // Recheck immediately before the platform's unconditional clear operation.
+        val currentDescription = clipboard.primaryClipDescription ?: return
+        val currentExtras = currentDescription.extras
+        val sameClip = currentExtras != null &&
+            currentExtras.getString(OTP_CLIPBOARD_OWNER_KEY) == OTP_CLIPBOARD_OWNER &&
+            currentExtras.getString(OTP_CLIPBOARD_TOKEN_KEY) == clipToken &&
+            currentExtras.getLong(OTP_CLIPBOARD_EXPIRY_KEY, 0L) == expiresAt
+        if (!sameClip) {
+            appState.otpClipboardToken = null
+            appState.otpClipboardExpiresAtElapsedRealtime = 0L
+            return
+        }
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             clipboard.clearPrimaryClip()
         } else {

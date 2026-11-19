@@ -100,7 +100,7 @@ Production signing and release provenance remain separate from the debug APK wor
 
 ## OTP clipboard handling
 
-Copied TOTP and HOTP values are marked sensitive in the Android `ClipDescription` so Android 13 and later can redact the system clipboard preview. SuikaAuthenticator attaches non-secret owner, token, and monotonic-expiry metadata to the clip. After 30 seconds, it clears the clipboard only when Android still exposes that same SuikaAuthenticator clip; it never clears a newer clip from another application.
+Copied TOTP and HOTP values are marked sensitive in the Android `ClipDescription` so Android 13 and later can redact the system clipboard preview. SuikaAuthenticator attaches non-secret owner, token, and monotonic-expiry metadata to the clip. After 30 seconds, it rechecks that Android still exposes the same SuikaAuthenticator clip before asking the system to clear it. A clip already replaced by another application is left alone. Android's clear operation is unconditional, however, so a replacement racing between the final metadata check and the clear call cannot be ruled out.
 
 Android may return no clipboard description while the Activity is not eligible to inspect the clipboard. In that case expiry is deferred and checked again when SuikaAuthenticator returns to the foreground. This is best-effort cleanup, not a guarantee that a copied code is erased at exactly 30 seconds. The OS-level sensitive flag is a display hint, not a clipboard access-control mechanism.
 

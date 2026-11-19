@@ -88,6 +88,7 @@ Status: **Milestone 7 — Encrypted backup and restore (Linux/Android implementa
 ## 8. Security hardening and release
 
 - [x] Mark Android OTP clipboard content as sensitive and add owner-checked, best-effort 30-second clipboard cleanup on Linux and Android.
+- [ ] Validate clipboard preview redaction and expiry/focus behavior on Android devices and Linux Wayland/X11 sessions.
 - [ ] Review threat model and cryptographic implementation.
 - [ ] Audit direct and transitive dependencies.
 - [x] Add pinned RustSec advisory checks for both independent Cargo lockfiles in CI; keep the manual dependency review open.
