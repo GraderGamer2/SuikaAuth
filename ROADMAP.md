@@ -89,6 +89,7 @@ Status: **Milestone 7 — Encrypted backup and restore (Linux/Android implementa
 
 - [ ] Review threat model and cryptographic implementation.
 - [ ] Audit direct and transitive dependencies.
+- [x] Add pinned RustSec advisory checks for both independent Cargo lockfiles in CI; keep the manual dependency review open.
 - [x] Commit the root and Android JNI Cargo-generated Cargo.lock files and verify locked CI builds.
 - [x] Test file replacement and recovery behavior under interruption.
 - [ ] Perform abrupt process-kill and power-loss durability tests on target Linux and Android filesystems.

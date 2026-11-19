@@ -64,3 +64,17 @@ GTK4 0.10.3 is an exact-pinned Linux-only Rust binding and belongs only to the f
 - `aes-gcm` 0.11.1, `base64` 0.22.1, and `scrypt` 0.12.0 are used only to decrypt local Aegis JSON exports. The importer caps the export at 16 MiB, the decrypted database at 8 MiB, password slots at four, and scrypt memory at 128 MiB.
 - `serde` 1.0.229 and `serde_json` 1.0.154 parse the external Aegis format into bounded, typed records. A custom secret field deserializer wraps each Base32 secret in a zeroizing allocation. The source JSON, decrypted database, Base64 ciphertext, KDF output, and converted secret buffers are zeroized where practical.
 - Aegis import is offline. No cloud API, remote vault, or account sync dependency is introduced. The imported account records are re-encoded with the existing Suika binary database and encrypted using the existing Suika vault.
+
+
+## Vulnerability advisory checks
+
+CI installs the exact `cargo-audit` 0.23.0 release with Cargo's `--locked` installation mode. It audits both committed dependency graphs separately:
+
+```sh
+cargo audit --file "$GITHUB_WORKSPACE/Cargo.lock"
+cargo audit --file "$GITHUB_WORKSPACE/android/native/Cargo.lock"
+```
+
+The commands run from the runner's temporary directory rather than from the repository checkout. Passing `--file` makes the selected lockfile explicit and avoids generating or updating a lockfile. Both lockfiles must remain independently audited because the Linux and Android JNI applications are separate Cargo workspaces.
+
+This gate detects known RustSec advisories affecting crates represented in the lockfiles at audit time. It does not prove that the application is free of unknown vulnerabilities, establish exploit reachability, audit Android Gradle or operating-system packages, or replace review of dependency purpose, enabled features, provenance, maintenance, and licenses. Keep the manual dependency audit open until those areas have been reviewed.
