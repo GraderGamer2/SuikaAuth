@@ -1065,7 +1065,9 @@ fn decode_otpauth_qr_image(path: &Path) -> Result<Zeroizing<String>, String> {
             continue;
         }
         if payload.len() > MAX_URI_BYTES {
-            return Err("The QR code contains a provisioning URI larger than 4096 bytes.".to_owned());
+            return Err(
+                "The QR code contains a provisioning URI larger than 4096 bytes.".to_owned(),
+            );
         }
         let value = std::str::from_utf8(&payload)
             .map_err(|_| "The QR code does not contain a valid provisioning URI.")?;
@@ -1075,9 +1077,8 @@ fn decode_otpauth_qr_image(path: &Path) -> Result<Zeroizing<String>, String> {
         selected_uri = Some(Zeroizing::new(value.to_owned()));
     }
 
-    selected_uri.ok_or_else(|| {
-        "No valid otpauth:// QR code was found in the selected image.".to_owned()
-    })
+    selected_uri
+        .ok_or_else(|| "No valid otpauth:// QR code was found in the selected image.".to_owned())
 }
 
 fn persist_vault(vault: &mut AuthenticatedVault, directory: &Path) -> Result<(), String> {
