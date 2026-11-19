@@ -433,8 +433,8 @@ mod tests {
     #[test]
     fn imports_newline_delimited_totp_and_hotp_uris() {
         let contents = b"\xef\xbb\xbf\r\notpauth://totp/Example:alice?secret=JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP\r\n\notpauth://hotp/Backup:token?secret=JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP&counter=9&algorithm=SHA512&digits=7\n";
-        let accounts = parse_otpauth_uri_list(contents)
-            .expect("newline-delimited URI export should parse");
+        let accounts =
+            parse_otpauth_uri_list(contents).expect("newline-delimited URI export should parse");
 
         assert_eq!(accounts.len(), 2);
         assert_eq!(accounts[0].issuer(), "Example");
@@ -449,7 +449,8 @@ mod tests {
 
     #[test]
     fn rejects_invalid_uri_list_entries_without_partial_results() {
-        let contents = b"otpauth://totp/Example:alice?secret=JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP\nnot-a-uri\n";
+        let contents =
+            b"otpauth://totp/Example:alice?secret=JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP\nnot-a-uri\n";
         assert_eq!(
             parse_otpauth_uri_list(contents).err(),
             Some(OtpAuthListError::InvalidEntry { line: 2 })

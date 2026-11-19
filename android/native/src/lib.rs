@@ -1188,9 +1188,8 @@ mod tests {
                 .load()
                 .expect("imported encrypted vault should load")
         };
-        let invalid_export = format!(
-            "otpauth://totp/Example:partial?secret={secret}\nnot-a-provisioning-uri\n"
-        );
+        let invalid_export =
+            format!("otpauth://totp/Example:partial?secret={secret}\nnot-a-provisioning-uri\n");
         assert!(import_otpauth_uri_list(handle as jlong, invalid_export.as_bytes()).is_err());
         {
             let registry = sessions()

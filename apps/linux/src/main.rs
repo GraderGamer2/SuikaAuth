@@ -1365,7 +1365,9 @@ fn show_otpauth_uri_list_import_page(
     file_label.set_xalign(0.0);
     file_label.set_ellipsize(gtk::pango::EllipsizeMode::Middle);
 
-    let status = Label::new(Some("The selected file is read locally and held in memory only."));
+    let status = Label::new(Some(
+        "The selected file is read locally and held in memory only.",
+    ));
     status.set_wrap(true);
     status.set_xalign(0.0);
     let buttons = GtkBox::new(Orientation::Horizontal, 8);
@@ -1488,8 +1490,8 @@ fn show_otpauth_uri_list_import_page(
 fn load_otpauth_uri_list(path: &Path) -> Result<Vec<Account>, String> {
     let maximum_bytes = u64::try_from(MAX_OTPAUTH_URI_LIST_BYTES)
         .map_err(|_| "The URI-list size limit is invalid.".to_owned())?;
-    let metadata = fs::metadata(path)
-        .map_err(|_| "The selected plaintext URI export could not be opened.")?;
+    let metadata =
+        fs::metadata(path).map_err(|_| "The selected plaintext URI export could not be opened.")?;
     if !metadata.is_file() || metadata.len() > maximum_bytes {
         return Err("Choose a regular plaintext URI export no larger than 16 MiB.".to_owned());
     }
@@ -1499,15 +1501,17 @@ fn load_otpauth_uri_list(path: &Path) -> Result<Vec<Account>, String> {
         .len()
         .checked_add(1)
         .ok_or_else(|| "The selected URI export size is invalid.".to_owned())?;
-    let file = fs::File::open(path)
-        .map_err(|_| "The selected plaintext URI export could not be read.")?;
+    let file =
+        fs::File::open(path).map_err(|_| "The selected plaintext URI export could not be read.")?;
     let mut input = Zeroizing::new(Vec::with_capacity(capacity));
     let bytes_read = file
         .take(read_limit)
         .read_to_end(&mut input)
         .map_err(|_| "The selected plaintext URI export could not be read.")?;
     if bytes_read as u64 != metadata.len() {
-        return Err("The selected plaintext URI export changed while it was being read.".to_owned());
+        return Err(
+            "The selected plaintext URI export changed while it was being read.".to_owned(),
+        );
     }
     parse_otpauth_uri_list(&input).map_err(|error| error.to_string())
 }
@@ -1529,7 +1533,9 @@ fn persist_otpauth_uri_list(
     let existing = vault.accounts.encode().map_err(|error| error.to_string())?;
     let mut candidate = AccountDatabase::decode(&existing).map_err(|error| error.to_string())?;
     for account in imported {
-        candidate.insert(account).map_err(|error| error.to_string())?;
+        candidate
+            .insert(account)
+            .map_err(|error| error.to_string())?;
     }
 
     let store = VaultStore::open(directory).map_err(|error| error.to_string())?;
