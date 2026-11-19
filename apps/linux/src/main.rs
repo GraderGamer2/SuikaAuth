@@ -40,6 +40,7 @@ const INACTIVITY_LOCK_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 
 thread_local! {
     static LAST_ACTIVITY: Cell<Instant> = Cell::new(Instant::now());
+    static OTP_CLIPBOARD_GENERATION: Cell<u64> = Cell::new(0);
 }
 
 fn record_activity() {
@@ -48,6 +49,38 @@ fn record_activity() {
 
 fn inactivity_duration() -> Duration {
     LAST_ACTIVITY.with(|last| Instant::now().saturating_duration_since(last.get()))
+}
+
+/// Copy an OTP and clear it after 30 seconds only if it is still the
+/// application-owned clipboard value. External clipboard contents are untouched.
+fn copy_otp_to_clipboard(clipboard: &gtk::gdk::Clipboard, code: &str) {
+    clipboard.set_text(code);
+    let generation = OTP_CLIPBOARD_GENERATION.with(|current| {
+        let next = current.get().wrapping_add(1);
+        current.set(next);
+        next
+    });
+    let expected = Zeroizing::new(code.to_owned());
+    let clipboard = clipboard.clone();
+
+    glib::source::timeout_add_local(Duration::from_secs(30), move || {
+        let is_current = OTP_CLIPBOARD_GENERATION.with(|current| current.get() == generation);
+        if is_current && clipboard.is_local() {
+            let clipboard_for_read = clipboard.clone();
+            clipboard.read_text_async(None::<&gio::Cancellable>, move |result| {
+                let is_current =
+                    OTP_CLIPBOARD_GENERATION.with(|current| current.get() == generation);
+                let matches_otp = result
+                    .is_ok_and(|text| text.as_deref() == Some(expected.as_str()));
+
+                if is_current && clipboard_for_read.is_local() && matches_otp {
+                    let _ = clipboard_for_read
+                        .set_content(None::<&gtk::gdk::ContentProvider>);
+                }
+            });
+        }
+        ControlFlow::Break
+    });
 }
 
 struct AuthenticatedVault {
@@ -2898,7 +2931,7 @@ fn show_accounts_page(
                             if let Some(display) = gtk::gdk::Display::default() {
                                 let value = code_for_copy.text().to_string();
                                 if value != "------" {
-                                    display.clipboard().set_text(&value);
+                                    copy_otp_to_clipboard(&display.clipboard(), &value);
                                 }
                             }
                         });
@@ -2922,7 +2955,7 @@ fn show_accounts_page(
                                     countdown_for_advance
                                         .set_text(&format!("Counter {next_counter}"));
                                     if let Some(display) = gtk::gdk::Display::default() {
-                                        display.clipboard().set_text(&used_code);
+                                        copy_otp_to_clipboard(&display.clipboard(), &used_code);
                                     }
                                 }
                                 Err(message) => {

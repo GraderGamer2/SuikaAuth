@@ -41,3 +41,10 @@ No password is stored in application settings or command-line arguments. The mas
 ## Idle lock and shutdown
 
 The inactivity timer is reset by pointer movement, pointer/touch clicks, keyboard input, and scrolling anywhere in the main GTK window. After five minutes without those events, the application drops the unlocked vault session, removes the account and enrollment pages, and returns to the password screen. The same session drop occurs when the main window closes or the GTK application shuts down. Secret-entry widgets are cleared on lock and shutdown. This is best-effort application-level memory cleanup; it is not a guarantee against memory acquisition by a process with sufficient privileges, swap capture, or abrupt power loss.
+
+
+## OTP clipboard handling
+
+Copied TOTP and HOTP values are cleared after 30 seconds only if GDK still reports that the clipboard is locally owned by SuikaAuthenticator and its text still matches the copied code. A later OTP copy supersedes the earlier expiry callback, and content copied by another application is never cleared. The comparison buffer is zeroized when the callback finishes. This is best-effort clipboard hygiene; it does not prevent another process from reading a code before it expires.
+
+References: [GDK Clipboard ownership](https://docs.gtk.org/gdk4/method.Clipboard.is_local.html) and [GDK Clipboard text reads](https://docs.gtk.org/gdk4/method.Clipboard.read_text_async.html).

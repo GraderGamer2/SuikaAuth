@@ -13,6 +13,10 @@ internal class AuthenticatorSessionViewModel : ViewModel() {
 
     var nativeSessionHandle: Long? = null
 
+    // Clipboard metadata only; the OTP text is never retained here.
+    var otpClipboardToken: String? = null
+    var otpClipboardExpiresAtElapsedRealtime: Long = 0L
+
     override fun onCleared() {
         val handle = nativeSessionHandle
         nativeSessionHandle = null

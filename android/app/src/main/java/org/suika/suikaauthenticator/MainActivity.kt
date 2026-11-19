@@ -21,11 +21,15 @@ import com.google.mlkit.vision.common.InputImage
 import androidx.lifecycle.ViewModelProvider
 import android.content.ClipData
 import android.content.ClipboardManager
+import android.content.ClipDescription
 import android.content.Context
 import android.graphics.Typeface
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.PersistableBundle
+import android.os.SystemClock
 import android.text.Editable
 import android.text.TextWatcher
 import android.view.Gravity
@@ -47,6 +51,7 @@ import java.nio.charset.StandardCharsets
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.UUID
 import java.util.concurrent.atomic.AtomicInteger
 import javax.crypto.Cipher
 
@@ -62,6 +67,11 @@ class MainActivity : FragmentActivity() {
         private const val MAX_OTPAUTH_URI_LIST_BYTES = 16 * 1024 * 1024
         private const val MAX_BACKUP_PASSWORD_BYTES = 1024
         private const val MAX_BACKUP_FILE_BYTES = 158 + 16 * 1024 * 1024 + 16
+        private const val OTP_CLIPBOARD_TTL_MS = 30_000L
+        private const val OTP_CLIPBOARD_OWNER_KEY = "org.suika.SuikaAuthenticator.clipboard.owner"
+        private const val OTP_CLIPBOARD_OWNER = "suika-authenticator-otp-v1"
+        private const val OTP_CLIPBOARD_TOKEN_KEY = "org.suika.SuikaAuthenticator.clipboard.token"
+        private const val OTP_CLIPBOARD_EXPIRY_KEY = "org.suika.SuikaAuthenticator.clipboard.expires"
     }
     private var backgroundLockTimeoutMs = 0L
     private var activeHandle: Long? = null
@@ -89,6 +99,7 @@ class MainActivity : FragmentActivity() {
     private lateinit var searchInput: EditText
 
     private val inactivityLock = Runnable { lockSession(showAuthentication = true) }
+    private val otpClipboardExpiry = Runnable { refreshOtpClipboardExpiry() }
 
     private val cameraPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -210,6 +221,8 @@ class MainActivity : FragmentActivity() {
         super.onStart()
         activityStarted = true
         handler.removeCallbacks(backgroundLock)
+        handler.removeCallbacks(otpClipboardExpiry)
+        handler.post(otpClipboardExpiry)
         if (activeHandle == null && vaultExists == true && content.childCount > 0) {
             renderAuthentication(existingVault = true)
         } else if (activeHandle != null) {
@@ -1628,8 +1641,76 @@ class MainActivity : FragmentActivity() {
 
     private fun copyCode(code: String, label: String) {
         val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        clipboard.setPrimaryClip(ClipData.newPlainText("One-time code for $label", code))
-        Toast.makeText(this, "Code copied", Toast.LENGTH_SHORT).show()
+        val token = UUID.randomUUID().toString()
+        val expiresAt = SystemClock.elapsedRealtime() + OTP_CLIPBOARD_TTL_MS
+        val clip = ClipData.newPlainText("One-time code for $label", code).apply {
+            description.extras = PersistableBundle().apply {
+                putBoolean(ClipDescription.EXTRA_IS_SENSITIVE, true)
+                putString(OTP_CLIPBOARD_OWNER_KEY, OTP_CLIPBOARD_OWNER)
+                putString(OTP_CLIPBOARD_TOKEN_KEY, token)
+                putLong(OTP_CLIPBOARD_EXPIRY_KEY, expiresAt)
+            }
+        }
+
+        clipboard.setPrimaryClip(clip)
+        appState.otpClipboardToken = token
+        appState.otpClipboardExpiresAtElapsedRealtime = expiresAt
+        handler.removeCallbacks(otpClipboardExpiry)
+        handler.postDelayed(otpClipboardExpiry, OTP_CLIPBOARD_TTL_MS)
+
+        // Android 13+ displays its own copy confirmation.
+        if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.S_V2) {
+            Toast.makeText(this, "Code copied", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun refreshOtpClipboardExpiry() {
+        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        // Android may return null while this Activity is not allowed to inspect
+        // the clipboard. Keep the marker and retry when the app is foregrounded.
+        val description = clipboard.primaryClipDescription ?: return
+        val extras = description.extras
+        if (extras?.getString(OTP_CLIPBOARD_OWNER_KEY) != OTP_CLIPBOARD_OWNER) {
+            appState.otpClipboardToken = null
+            appState.otpClipboardExpiresAtElapsedRealtime = 0L
+            return
+        }
+
+        val clipToken = extras.getString(OTP_CLIPBOARD_TOKEN_KEY)
+        val trackedToken = appState.otpClipboardToken
+        if (trackedToken != null && trackedToken != clipToken) {
+            appState.otpClipboardToken = null
+            appState.otpClipboardExpiresAtElapsedRealtime = 0L
+            return
+        }
+
+        val expiresAt = extras.getLong(
+            OTP_CLIPBOARD_EXPIRY_KEY,
+            appState.otpClipboardExpiresAtElapsedRealtime
+        )
+        if (expiresAt <= 0L) {
+            appState.otpClipboardToken = null
+            appState.otpClipboardExpiresAtElapsedRealtime = 0L
+            return
+        }
+
+        appState.otpClipboardToken = clipToken
+        appState.otpClipboardExpiresAtElapsedRealtime = expiresAt
+        val remaining = expiresAt - SystemClock.elapsedRealtime()
+        if (remaining > 0L) {
+            handler.removeCallbacks(otpClipboardExpiry)
+            handler.postDelayed(otpClipboardExpiry, remaining)
+            return
+        }
+
+        // Clear only the clip whose metadata still identifies it as ours.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            clipboard.clearPrimaryClip()
+        } else {
+            clipboard.setPrimaryClip(ClipData.newPlainText("", ""))
+        }
+        appState.otpClipboardToken = null
+        appState.otpClipboardExpiresAtElapsedRealtime = 0L
     }
 
     private fun lockSession(showAuthentication: Boolean) {
