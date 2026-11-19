@@ -33,4 +33,12 @@ android {
 
 dependencies {
     implementation("androidx.biometric:biometric:1.1.0")
+
+    // CameraX owns lifecycle-aware camera preview and image analysis.
+    implementation("androidx.camera:camera-camera2:1.7.0")
+    implementation("androidx.camera:camera-lifecycle:1.7.0")
+    implementation("androidx.camera:camera-view:1.7.0")
+
+    // Bundle the QR model so scanning is immediately available without a runtime download.
+    implementation("com.google.mlkit:barcode-scanning:17.3.0")
 }

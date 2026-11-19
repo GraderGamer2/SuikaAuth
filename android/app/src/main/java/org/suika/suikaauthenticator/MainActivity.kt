@@ -1,10 +1,22 @@
 package org.suika.suikaauthenticator
 
+import android.Manifest
 import android.app.AlertDialog
+import android.content.pm.PackageManager
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
+import androidx.camera.core.CameraSelector
+import androidx.camera.core.ImageAnalysis
+import androidx.camera.view.CameraController
+import androidx.camera.view.LifecycleCameraController
+import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
+import com.google.mlkit.vision.barcode.BarcodeScanning
+import com.google.mlkit.vision.barcode.common.Barcode
+import com.google.mlkit.vision.barcode.BarcodeScannerOptions
+import com.google.mlkit.vision.common.InputImage
 import androidx.lifecycle.ViewModelProvider
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -31,6 +43,9 @@ import android.widget.Toast
 import java.io.File
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import javax.crypto.Cipher
 
 class MainActivity : FragmentActivity() {
@@ -47,6 +62,9 @@ class MainActivity : FragmentActivity() {
     private var activityStarted = false
     private var biometricEnrollmentInProgress = false
     private var pendingDeviceUnlockKey: ByteArray? = null
+    private var pendingQrUriField: EditText? = null
+    private var activeQrScannerCleanup: (() -> Unit)? = null
+    private var sensitiveEnrollmentFields: List<EditText> = emptyList()
     private var isRefreshing = false
     private val pendingHotp = mutableSetOf<String>()
 
@@ -56,6 +74,18 @@ class MainActivity : FragmentActivity() {
     private lateinit var searchInput: EditText
 
     private val inactivityLock = Runnable { lockSession(showAuthentication = true) }
+
+    private val cameraPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        val uriField = pendingQrUriField
+        pendingQrUriField = null
+        if (granted && uriField != null && !isFinishing && !isDestroyed) {
+            showQrScanner(uriField)
+        } else if (!granted && ::status.isInitialized && !isFinishing) {
+            status.text = "Camera access is required to scan a QR code. You can still paste a provisioning URI."
+        }
+    }
 
     private val backgroundLockTimeoutChoices = longArrayOf(
         0L,
@@ -128,6 +158,7 @@ class MainActivity : FragmentActivity() {
 
     override fun onStop() {
         activityStarted = false
+        activeQrScannerCleanup?.invoke()
         handler.removeCallbacks(accountRefresh)
         handler.removeCallbacks(inactivityLock)
         if (!isChangingConfigurations && !biometricPromptVisible && activeHandle != null) {
@@ -142,6 +173,8 @@ class MainActivity : FragmentActivity() {
     }
 
     override fun onDestroy() {
+        activeQrScannerCleanup?.invoke()
+        clearSensitiveEnrollmentFields()
         handler.removeCallbacksAndMessages(null)
         if (isChangingConfigurations) {
             if (biometricPromptVisible) cancelBiometricPrompt()
@@ -173,6 +206,7 @@ class MainActivity : FragmentActivity() {
     }
 
     private fun renderAuthentication(existingVault: Boolean) {
+        clearSensitiveEnrollmentFields()
         handler.removeCallbacks(accountRefresh)
         activeHandle = null
         content.removeAllViews()
@@ -247,6 +281,7 @@ class MainActivity : FragmentActivity() {
     }
 
     private fun showVault() {
+        clearSensitiveEnrollmentFields()
         handler.removeCallbacks(accountRefresh)
         content.removeAllViews()
         addHeading("Your accounts")
@@ -296,7 +331,11 @@ class MainActivity : FragmentActivity() {
         val label = addTextField("Account name")
         val provisioningUri = addPasswordField("Provisioning URI (optional)")
         provisioningUri.filters = arrayOf(android.text.InputFilter.LengthFilter(4096))
+        addButton("Scan QR code").setOnClickListener {
+            requestQrScanner(provisioningUri)
+        }
         val secret = addPasswordField("Base32 secret")
+        sensitiveEnrollmentFields = listOf(provisioningUri, secret)
         val algorithm = addDropdownField(
             "HMAC algorithm",
             arrayOf("SHA-1", "SHA-256", "SHA-512"),
@@ -410,6 +449,170 @@ class MainActivity : FragmentActivity() {
         handler.removeCallbacks(accountRefresh)
         if (activityStarted) handler.post(accountRefresh)
         resetInactivityTimer()
+    }
+
+    private fun requestQrScanner(uriField: EditText) {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) ==
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            showQrScanner(uriField)
+        } else {
+            pendingQrUriField = uriField
+            cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+        }
+    }
+
+    private fun showQrScanner(uriField: EditText) {
+        val scannerOptions = BarcodeScannerOptions.Builder()
+            .setBarcodeFormats(Barcode.FORMAT_QR_CODE)
+            .build()
+        val scanner = BarcodeScanning.getClient(scannerOptions)
+        val analysisExecutor = Executors.newSingleThreadExecutor()
+        val mainExecutor = ContextCompat.getMainExecutor(this)
+        val scannerClosed = AtomicBoolean(false)
+        val closeRequested = AtomicBoolean(false)
+        val scanAccepted = AtomicBoolean(false)
+        val processingFrames = AtomicInteger(0)
+        val preview = PreviewView(this).apply {
+            scaleType = PreviewView.ScaleType.FILL_CENTER
+        }
+        val cameraController = LifecycleCameraController(this).apply {
+            cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
+            setEnabledUseCases(CameraController.IMAGE_ANALYSIS)
+            setImageAnalysisBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+        }
+
+        val scanLayout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(12), dp(8), dp(12), dp(8))
+            addView(
+                TextView(this@MainActivity).apply {
+                    text = "Point the rear camera at an authenticator QR code."
+                    textSize = 14f
+                },
+                matchWidthWrapHeight()
+            )
+            addView(
+                preview,
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    dp(380)
+                )
+            )
+        }
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("Scan authenticator QR code")
+            .setView(scanLayout)
+            .setNegativeButton("Cancel", null)
+            .create()
+
+        fun closeScannerClient() {
+            if (scannerClosed.compareAndSet(false, true)) {
+                scanner.close()
+            }
+        }
+
+        fun cleanupScanner() {
+            if (closeRequested.compareAndSet(false, true)) {
+                runCatching { cameraController.clearImageAnalysisAnalyzer() }
+                runCatching { cameraController.unbind() }
+                // Queue cleanup after every analyzer task already submitted by CameraX.
+                // ML Kit tasks may outlive their analyzer callback; their completion
+                // listener closes the scanner once the last in-flight frame is done.
+                runCatching {
+                    analysisExecutor.execute {
+                        if (processingFrames.get() == 0) closeScannerClient()
+                    }
+                }
+                analysisExecutor.shutdown()
+            }
+            activeQrScannerCleanup = null
+        }
+
+        dialog.setOnDismissListener { cleanupScanner() }
+        activeQrScannerCleanup = {
+            if (dialog.isShowing) dialog.dismiss()
+            cleanupScanner()
+        }
+
+        cameraController.setImageAnalysisAnalyzer(
+            analysisExecutor,
+            ImageAnalysis.Analyzer { imageProxy ->
+                if (closeRequested.get() || scanAccepted.get()) {
+                    imageProxy.close()
+                    return@Analyzer
+                }
+                val mediaImage = imageProxy.image
+                if (mediaImage == null) {
+                    imageProxy.close()
+                    return@Analyzer
+                }
+
+                val inputImage = runCatching {
+                    InputImage.fromMediaImage(
+                        mediaImage,
+                        imageProxy.imageInfo.rotationDegrees
+                    )
+                }.getOrElse {
+                    imageProxy.close()
+                    return@Analyzer
+                }
+
+                processingFrames.incrementAndGet()
+                var capturedUri: String? = null
+                try {
+                    scanner.process(inputImage)
+                        .addOnSuccessListener(mainExecutor) { barcodes ->
+                            val value = barcodes.firstNotNullOfOrNull { barcode ->
+                                barcode.rawValue?.takeIf {
+                                    barcode.format == Barcode.FORMAT_QR_CODE &&
+                                        it.startsWith("otpauth://", ignoreCase = true) &&
+                                        it.toByteArray(StandardCharsets.UTF_8).size <= 4096
+                                }
+                            }
+                            if (value != null && scanAccepted.compareAndSet(false, true)) {
+                                capturedUri = value
+                            }
+                        }
+                        .addOnFailureListener(mainExecutor) {
+                            if (!closeRequested.get() && ::status.isInitialized) {
+                                status.text = "The camera could not decode this frame. Keep the QR code steady and try again."
+                            }
+                        }
+                        .addOnCompleteListener(mainExecutor) {
+                            imageProxy.close()
+                            val remaining = processingFrames.decrementAndGet()
+                            if (closeRequested.get() && remaining == 0) closeScannerClient()
+
+                            val value = capturedUri
+                            if (value != null && !closeRequested.get()) {
+                                uriField.setText(value)
+                                if (::status.isInitialized) {
+                                    status.text = "QR code decoded. Review the URI, then tap Add account."
+                                }
+                                dialog.dismiss()
+                            }
+                        }
+                } catch (_: Exception) {
+                    imageProxy.close()
+                    val remaining = processingFrames.decrementAndGet()
+                    if (closeRequested.get() && remaining == 0) closeScannerClient()
+                    if (!closeRequested.get() && ::status.isInitialized) {
+                        status.text = "The QR scanner could not process this camera frame."
+                    }
+                }
+            }
+        )
+
+        try {
+            dialog.show()
+            preview.controller = cameraController
+            cameraController.bindToLifecycle(this)
+        } catch (error: Exception) {
+            cleanupScanner()
+            if (dialog.isShowing) dialog.dismiss()
+            showError(error)
+        }
     }
 
     private fun enableBiometricUnlock() {
@@ -901,6 +1104,8 @@ class MainActivity : FragmentActivity() {
     }
 
     private fun lockSession(showAuthentication: Boolean) {
+        activeQrScannerCleanup?.invoke()
+        clearSensitiveEnrollmentFields()
         cancelBiometricPrompt()
         handler.removeCallbacks(accountRefresh)
         handler.removeCallbacks(inactivityLock)
@@ -909,6 +1114,13 @@ class MainActivity : FragmentActivity() {
         appState.nativeSessionHandle = null
         if (handle != null) worker.execute { runCatching { NativeBridge.nativeLockVault(handle) } }
         if (showAuthentication && vaultExists != null && !isFinishing) renderAuthentication(existingVault = true)
+    }
+
+    private fun clearSensitiveEnrollmentFields() {
+        sensitiveEnrollmentFields.forEach { field ->
+            field.text?.clear()
+        }
+        sensitiveEnrollmentFields = emptyList()
     }
 
     private fun resetInactivityTimer() {

@@ -70,6 +70,12 @@ The master password remains available at all times as the portable recovery meth
 
 The app uses AndroidX Biometric 1.1.0, the stable dependency line, with API 26+ support. Only `BIOMETRIC_STRONG` is accepted; device-credential fallback is not used for this per-operation key. Keystore key material is system-managed, while the wrapped ciphertext remains below the single application data root.
 
+### Camera-based QR enrollment
+
+The Add authenticator screen offers an explicit **Scan QR code** action. The app declares camera hardware optional and requests `android.permission.CAMERA` at runtime only when the user starts scanning. CameraX 1.7.0 provides a lifecycle-bound rear-camera preview and `ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST`; ML Kit Barcode Scanning 17.3.0 is bundled in the APK and configured for QR format only. The bundled model is available immediately without a runtime model download. The scanner accepts only a bounded `otpauth://` text value, places it into the masked URI field for review, and then uses the native shared parser/import JNI path. It closes analysis, unbinds the camera, closes the ML Kit scanner after in-flight frames finish, and cancels when the dialog is dismissed, the Activity stops, or the vault locks.
+
+Camera permission is not requested at startup, for ordinary account use, or merely because the app is installed. Devices without a camera can still use manual provisioning URI paste and Base32 enrollment.
+
 ## CI responsibilities
 
 The Android CI job must:

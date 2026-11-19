@@ -21,4 +21,10 @@ The issuer prefix in the path is optional when the `issuer` query parameter is p
 
 The parser removes the encoded secret from its temporary query map into a zeroizing string before decoding; decoded bytes are held in a zeroizing buffer and passed directly to account creation. Linux clears the URI entry after submission. Android passes the URI through JNI as a bounded byte array that is cleared immediately after the native import operation. Account records are encrypted before they are persisted.
 
-This parser supports manual URI paste/import. Camera-based Android QR scanning and Linux QR image import remain separate roadmap items.
+## QR enrollment
+
+The Android app has a **Scan QR code** action on the Add authenticator form. It requests the `CAMERA` permission only after the user starts scanning. CameraX provides a lifecycle-bound rear-camera preview and latest-frame image analysis; the bundled ML Kit barcode model is restricted to QR formats. The model ships in the APK, so QR decoding does not require a first-run model download or a network connection. Only a QR payload beginning with `otpauth://` and no longer than 4,096 UTF-8 bytes is accepted. The URI is placed in the masked URI field for review; Add account then invokes the same native parser and encrypted persistence path as manual paste. The camera is unbound and the scanner is closed when the dialog is dismissed, the activity stops, or the vault locks.
+
+Linux offers **Import QR image** on the Add account form. It opens a local image through GTK's file dialog, decodes it with GdkPixbuf, scales the result to at most 2,048 × 2,048 pixels, converts it to grayscale, and identifies QR symbols using the pure-Rust `quircs` decoder. The source image is limited to 32 MiB. Exactly one valid `otpauth://` payload may be imported at a time; unsupported images, multiple authenticator codes, malformed payloads, and oversized URIs are rejected. No image or URI is uploaded, and no network request is made.
+
+Both QR paths are transport mechanisms only. They do not maintain independent OTP parsers and never bypass the shared parser's Base32 secret, issuer, algorithm, digit, period, or counter checks. QR decoding libraries belong to the platform frontends, not the cryptographic core.

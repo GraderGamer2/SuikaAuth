@@ -21,7 +21,7 @@ The root and Android JNI Cargo.lock files are committed; the Android JNI lockfil
 - android/native/: isolated Rust JNI bridge crate, linked to suika-core without adding JNI dependencies to the shared core.
 - android/gradle/: pinned Android Gradle build configuration. CI installs Gradle 9.6.0 with the Gradle Actions setup step.
 
-The Linux package will produce the suika-authenticator executable. The Android Gradle project cross-compiles the isolated Rust JNI bridge for arm64-v8a and x86_64, then produces a debug APK.
+The Linux package will produce the suika-authenticator executable. The Linux frontend also uses exact-pinned `gdk-pixbuf` 0.21.5 and `quircs` 0.10.3 for bounded local QR image import. The Android Gradle project cross-compiles the isolated Rust JNI bridge for arm64-v8a and x86_64, then produces a debug APK with CameraX 1.7.0 and the bundled ML Kit Barcode Scanning 17.3.0 QR model. Camera permission is requested only when the user starts scanning.
 
 ## GitHub Actions
 

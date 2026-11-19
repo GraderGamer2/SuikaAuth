@@ -71,8 +71,8 @@ Status: **Milestone 6 — Enrollment and migration**
 - [x] Add manual TOTP enrollment.
 - [x] Add manual HOTP enrollment.
 - [x] Parse and validate bounded TOTP/HOTP otpauth URIs, including percent encoding, duplicate rejection, issuer consistency, and OTP parameter validation.
-- [ ] Add camera QR scanning on Android.
-- [ ] Add QR image import on Linux.
+- [ ] Add offline Android camera QR scanning using CameraX and a bundled ML Kit QR model; request camera permission only when scanning is started (implementation added; CI validation pending).
+- [ ] Add local Linux QR image import using GdkPixbuf and the pure-Rust quircs decoder, with image/pixel bounds and single-code validation (implementation added; CI validation pending).
 - [ ] Add migration from Aegis exports and other documented authenticator formats.
 - [x] Validate issuer, account label, Base32 secret encoding and length, algorithm, digits, TOTP period, and HOTP counter during URI import.
 

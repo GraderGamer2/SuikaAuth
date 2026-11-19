@@ -35,7 +35,7 @@ jobs:
   linux:
     name: Rust core and Linux x86_64
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # actions/checkout v7.0.1
@@ -62,7 +62,7 @@ jobs:
 
       - name: Install GTK4 build dependencies
         if: steps.detect.outputs.linux_app_ready == 'true'
-        timeout-minutes: 15
+        timeout-minutes: 30
         run: |
           if ! timeout 600s sudo apt-get \
             -o Acquire::Retries=1 \

@@ -3,6 +3,10 @@
 All notable project changes will be recorded here.
 
 ## Unreleased
+- Added Android camera QR enrollment using lifecycle-bound CameraX preview and the bundled ML Kit barcode model; the camera permission is requested only when the user selects Scan QR code. Scanning accepts QR codes only, copies only a bounded `otpauth://` payload into the masked enrollment field, and leaves final parsing and encrypted persistence to the shared Rust core.
+- Added Linux local QR image import using GdkPixbuf for bounded image scaling and the pure-Rust `quircs` decoder. The import path limits source image size to 32 MiB and decoded dimensions to 2048 × 2048, accepts one `otpauth://` code per image, and performs no network access.
+- Kept QR decoding and camera functionality out of `suika-core`; both frontends pass extracted provisioning URIs through the same bounded shared parser before account creation.
+
 - Enforced an application-level no-logging policy: no log/tracing initialization, logging macros, profiling, telemetry, or crash-reporting integration; Rust panic hooks suppress default panic details. The Android JNI dependency graph uses `log/max_level_off` so the transitive JNI log facade compiles all log levels out.
 - Set both independent Rust release workspaces to `opt-level = 3`, full/fat LTO, one codegen unit, symbol stripping, and `panic = "abort"`. No host-specific CPU tuning is enabled; Linux x86-64 and Android arm64-v8a/x86_64 retain standard portable target baselines.
 - Added AndroidX BiometricPrompt and a per-use strong-biometric Android Keystore key that encrypts the existing Rust password-derived KEK. Only the wrapped KEK is stored under the Android app-private data root; the DEK and decrypted account database remain inside Rust. The portable password vault format is unchanged.

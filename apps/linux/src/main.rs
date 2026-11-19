@@ -4,12 +4,15 @@
 //! GTK presentation and the Linux application-directory choice.
 
 use std::cell::{Cell, RefCell};
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::mpsc::{self, TryRecvError};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use gdk_pixbuf::Pixbuf;
+use gtk::gio;
 use gtk::glib::{self, ControlFlow};
 use gtk::prelude::*;
 use gtk::{
@@ -675,6 +678,7 @@ fn show_add_account_page(
     description.set_xalign(0.0);
     description.add_css_class("dim-label");
 
+    let import_qr = Button::with_label("Import QR image");
     let provisioning_uri = labeled_entry(
         &page,
         "Provisioning URI (optional)",
@@ -684,6 +688,7 @@ fn show_add_account_page(
     provisioning_uri.set_input_purpose(gtk::InputPurpose::Password);
     provisioning_uri.set_widget_name("suika-secret-entry");
     provisioning_uri.set_max_length(4096);
+    page.append(&import_qr);
 
     let issuer = labeled_entry(&page, "Issuer (optional)", "Example: GitHub");
     issuer.set_max_length(256);
@@ -788,6 +793,48 @@ fn show_add_account_page(
     let custom_parameter_for_save = custom_parameter.clone();
     let status_for_save = status.clone();
     let save_for_save = save.clone();
+
+    let uri_for_qr = provisioning_uri.clone();
+    let status_for_qr = status.clone();
+    let window_for_qr = window.clone();
+    import_qr.connect_clicked(move |_| {
+        let file_dialog = gtk::FileDialog::builder()
+            .title("Import authenticator QR image")
+            .accept_label("Import")
+            .modal(true)
+            .build();
+        let uri_field = uri_for_qr.clone();
+        let status_label = status_for_qr.clone();
+        file_dialog.open(
+            Some(&window_for_qr),
+            None::<&gio::Cancellable>,
+            move |result| {
+                let Ok(file) = result else {
+                    return;
+                };
+                let Some(path) = file.path() else {
+                    status_label.set_text("The selected image is not available as a local file.");
+                    return;
+                };
+                match decode_otpauth_qr_image(&path) {
+                    Ok(uri) => match parse_otpauth_uri(uri.as_str()) {
+                        Ok(_) => {
+                            uri_field.set_text(uri.as_str());
+                            status_label.set_text(
+                                "QR code decoded. Review the imported URI, then select Add account.",
+                            );
+                        }
+                        Err(error) => {
+                            status_label.set_text(&format!(
+                                "The QR code does not contain a supported authenticator: {error}"
+                            ));
+                        }
+                    },
+                    Err(message) => status_label.set_text(&message),
+                }
+            },
+        );
+    });
 
     save.connect_clicked(move |_| {
         let uri_value = Zeroizing::new(uri_for_save.text().to_string());
@@ -926,6 +973,111 @@ fn show_add_account_page(
     });
 
     replace_page(stack, "add-account", &page);
+}
+
+fn decode_otpauth_qr_image(path: &Path) -> Result<Zeroizing<String>, String> {
+    const MAX_IMAGE_FILE_BYTES: u64 = 32 * 1024 * 1024;
+    const MAX_IMAGE_DIMENSION: usize = 2048;
+    const MAX_URI_BYTES: usize = 4096;
+
+    let metadata = fs::metadata(path).map_err(|_| "The selected image could not be opened.")?;
+    if !metadata.is_file() || metadata.len() > MAX_IMAGE_FILE_BYTES {
+        return Err("Choose an image file smaller than 32 MiB.".to_owned());
+    }
+
+    // GdkPixbuf handles the installed image formats; cap its output dimensions
+    // before handing the buffer to the pure-Rust QR decoder.
+    let pixbuf = Pixbuf::from_file_at_scale(
+        path,
+        MAX_IMAGE_DIMENSION as i32,
+        MAX_IMAGE_DIMENSION as i32,
+        true,
+    )
+    .map_err(|_| "The selected file is not a supported image.")?;
+
+    let width = usize::try_from(pixbuf.width())
+        .map_err(|_| "The selected image has invalid dimensions.")?;
+    let height = usize::try_from(pixbuf.height())
+        .map_err(|_| "The selected image has invalid dimensions.")?;
+    let channels = usize::try_from(pixbuf.n_channels())
+        .map_err(|_| "The selected image has an unsupported pixel format.")?;
+    let bits_per_sample = pixbuf.bits_per_sample();
+    let rowstride = usize::try_from(pixbuf.rowstride())
+        .map_err(|_| "The selected image has invalid row data.")?;
+
+    if width == 0
+        || height == 0
+        || width > MAX_IMAGE_DIMENSION
+        || height > MAX_IMAGE_DIMENSION
+        || channels < 3
+        || bits_per_sample != 8
+    {
+        return Err("The selected image has an unsupported pixel format or size.".to_owned());
+    }
+
+    let row_bytes = width
+        .checked_mul(channels)
+        .ok_or_else(|| "The selected image dimensions are too large.".to_owned())?;
+    if rowstride < row_bytes {
+        return Err("The selected image contains invalid pixel data.".to_owned());
+    }
+    let required_bytes = rowstride
+        .checked_mul(height.saturating_sub(1))
+        .and_then(|length| length.checked_add(row_bytes))
+        .ok_or_else(|| "The selected image dimensions are too large.".to_owned())?;
+
+    let pixel_bytes = pixbuf.read_pixel_bytes();
+    let pixels = pixel_bytes.as_ref();
+    if pixels.len() < required_bytes {
+        return Err("The selected image contains incomplete pixel data.".to_owned());
+    }
+
+    let pixel_count = width
+        .checked_mul(height)
+        .ok_or_else(|| "The selected image dimensions are too large.".to_owned())?;
+    let mut grayscale = Zeroizing::new(Vec::with_capacity(pixel_count));
+    for y in 0..height {
+        let row_start = y * rowstride;
+        for x in 0..width {
+            let offset = row_start + x * channels;
+            let red = u32::from(pixels[offset]);
+            let green = u32::from(pixels[offset + 1]);
+            let blue = u32::from(pixels[offset + 2]);
+            let luminance = (red * 299 + green * 587 + blue * 114 + 500) / 1000;
+            grayscale.push(luminance as u8);
+        }
+    }
+
+    let mut decoder = quircs::Quirc::default();
+    let mut selected_uri: Option<Zeroizing<String>> = None;
+    for candidate in decoder.identify(width, height, grayscale.as_slice()) {
+        let Ok(candidate) = candidate else {
+            continue;
+        };
+        let Ok(decoded) = candidate.decode() else {
+            continue;
+        };
+        let payload = Zeroizing::new(decoded.payload);
+        let is_otpauth = payload
+            .get(..10)
+            .is_some_and(|prefix| prefix.eq_ignore_ascii_case(b"otpauth://"));
+        if !is_otpauth {
+            continue;
+        }
+        if payload.len() > MAX_URI_BYTES {
+            return Err("The QR code contains a provisioning URI larger than 4096 bytes.".to_owned());
+        }
+        let value = std::str::from_utf8(&payload)
+            .map_err(|_| "The QR code does not contain a valid provisioning URI.")?;
+        if selected_uri.is_some() {
+            return Err("The image contains multiple authenticator QR codes. Choose an image with one code at a time.".to_owned());
+        }
+        selected_uri = Some(Zeroizing::new(value.to_owned()));
+    }
+
+    selected_uri.ok_or_else(|| {
+        "No valid otpauth:// QR code was found in the selected image.".to_owned()
+    })
 }
 
 fn persist_vault(vault: &mut AuthenticatedVault, directory: &Path) -> Result<(), String> {

@@ -11,5 +11,7 @@ path = "src/main.rs"
 
 [dependencies]
 gtk = { package = "gtk4", version = "=0.10.3", default-features = false, features = ["v4_10"] }
+gdk-pixbuf = "=0.21.5"
+quircs = "=0.10.3"
 suika-core = { path = "../../crates/suika-core" }
 zeroize.workspace = true

@@ -14,6 +14,10 @@ SuikaAuthenticator keeps the shared security core small and platform-independent
 | sha2 | 0.11.1 | HMAC-SHA-256 and HMAC-SHA-512 |
 | zeroize | 1.9.0 | Clear sensitive buffers |
 | gtk4 | 0.10.3 | Native GTK4 Linux interface (frontend only) |
+| gdk-pixbuf | 0.21.5 | Local Linux image loading and QR image decoding (frontend only) |
+| quircs | 0.10.3 | Pure-Rust Linux QR detection/decoding (frontend only) |
+| gdk-pixbuf | 0.21.5 | Local Linux image loading and bounded QR image decoding (frontend only) |
+| quircs | 0.10.3 | Pure-Rust Linux QR detection/decoding (frontend only) |
 
 All listed cryptographic implementations are pure Rust. The direct versions are exact-pinned in the workspace manifest. Cargo.lock is committed. Every CI test, Clippy run, dependency-feature inspection, and release build uses --locked so the resolved graph cannot change implicitly.
 
@@ -40,3 +44,11 @@ GTK4 0.10.3 is an exact-pinned Linux-only Rust binding and belongs only to the f
 
 - `jni` 0.22.4 remains isolated in `android/native/`. Its transitive `log` facade is feature-unified with `max_level_off`; logging macros in that dependency graph are disabled at compile time. No logger or tracing subscriber is initialized.
 - `androidx.biometric:biometric:1.1.0` supplies API 26+ BiometricPrompt and authenticated Cipher operations. It remains Android-only and does not enter the Rust core or Linux build.
+
+
+## Camera and QR dependencies
+
+- Linux pins `gdk-pixbuf` 0.21.5 and `quircs` 0.10.3 in `apps/linux`. They are frontend-only and do not enter `suika-core`.
+- Android pins CameraX 1.7.0 (`camera-camera2`, `camera-lifecycle`, `camera-view`) for camera preview and frame analysis.
+- Android pins `com.google.mlkit:barcode-scanning:17.3.0`, the bundled-model artifact. The QR model is packaged in the APK; scanning does not depend on a first-run network download. The dependency is configured for QR format only.
+- Android camera permission is requested on demand from the QR scanner action, and camera hardware remains an optional device feature.
