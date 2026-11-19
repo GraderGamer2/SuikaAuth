@@ -2,7 +2,7 @@
 
 This is the authoritative project roadmap. Update its checkboxes and the changelog as work is completed. Development follows this order unless a security or correctness issue requires reordering.
 
-Status: **Milestone 7 — Encrypted backup and restore (Linux/Android UI implemented; CI validation pending)**
+Status: **Milestone 7 — Encrypted backup and restore (Linux/Android implementation and CI validation complete; cross-platform file-transfer test pending)**
 
 ## 1. Repository and architecture foundation
 
@@ -81,7 +81,7 @@ Status: **Milestone 7 — Encrypted backup and restore (Linux/Android UI impleme
 
 - [x] Define a portable encrypted backup format; see docs/BACKUP_FORMAT.md.
 - [x] Derive backup encryption keys from a user-supplied backup password using the bounded Argon2id profile and a separate random DEK.
-- [ ] Add Linux and Android export/import UI, transactional restore, and clear error handling (implemented; CI validation pending).
+- [x] Add Linux and Android export/import UI, transactional restore, and clear error handling; Linux uses mode-0600 atomic file export and Android uses the system document picker. Both workflows are CI-validated.
 - [ ] Test cross-platform restore between Linux and Android.
 - [x] Ensure backups never contain plaintext OTP secrets; core tests verify encrypted output and authenticated round trips.
 
