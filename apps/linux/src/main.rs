@@ -2649,15 +2649,16 @@ fn refresh_selected_account(
     };
     issuer.set_text(display_issuer);
     account_label.set_text(account.label());
+    let now = unix_time();
     code.set_text(
         &account
-            .generate_code(unix_time())
+            .generate_code(now)
             .unwrap_or_else(|_| "------".to_owned()),
     );
 
     match account.mode() {
         AccountMode::Totp { period_seconds } => {
-            let remaining = period_seconds - (unix_time() % period_seconds);
+            let remaining = period_seconds - (now % period_seconds);
             countdown.set_text(&format!("Refreshes in {remaining} seconds"));
             copy.set_visible(true);
             advance.set_visible(false);
@@ -3272,7 +3273,7 @@ fn show_accounts_page(
     let edit_for_timer = edit.clone();
     let remove_for_timer = remove.clone();
     glib::source::timeout_add_seconds_local(1, move || {
-        if !page_for_timer.is_mapped() {
+        if count == 0 || !page_for_timer.is_mapped() {
             return ControlFlow::Break;
         }
 
