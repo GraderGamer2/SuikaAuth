@@ -504,7 +504,9 @@ pub extern "system" fn Java_org_suika_suikaauthenticator_NativeBridge_nativeAddT
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_org_suika_suikaauthenticator_NativeBridge_nativeUpdateAccount<'local>(
+pub extern "system" fn Java_org_suika_suikaauthenticator_NativeBridge_nativeUpdateAccount<
+    'local,
+>(
     mut unowned_env: EnvUnowned<'local>,
     _class: JClass<'local>,
     handle: jlong,
@@ -528,7 +530,9 @@ pub extern "system" fn Java_org_suika_suikaauthenticator_NativeBridge_nativeUpda
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_org_suika_suikaauthenticator_NativeBridge_nativeRemoveAccount<'local>(
+pub extern "system" fn Java_org_suika_suikaauthenticator_NativeBridge_nativeRemoveAccount<
+    'local,
+>(
     mut unowned_env: EnvUnowned<'local>,
     _class: JClass<'local>,
     handle: jlong,
@@ -615,7 +619,9 @@ mod tests {
             .iter()
             .map(|byte| format!("{byte:02x}"))
             .collect::<String>();
-        let original_code = account.generate_code(59).expect("original code should generate");
+        let original_code = account
+            .generate_code(59)
+            .expect("original code should generate");
         accounts.insert(account).expect("account should insert");
 
         let plaintext = accounts.encode().expect("account database should encode");
@@ -655,7 +661,9 @@ mod tests {
             assert_eq!(account.group(), Some("Personal"));
             assert!(account.is_favorite());
             assert_eq!(
-                account.generate_code(59).expect("existing secret should remain"),
+                account
+                    .generate_code(59)
+                    .expect("existing secret should remain"),
                 original_code
             );
         }
@@ -689,8 +697,7 @@ mod tests {
             );
         }
 
-        remove_account(handle as jlong, &encoded_id)
-            .expect("account removal should persist");
+        remove_account(handle as jlong, &encoded_id).expect("account removal should persist");
         let mut registry = sessions()
             .lock()
             .expect("session registry should remain available");

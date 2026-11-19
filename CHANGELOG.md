@@ -3,6 +3,7 @@
 All notable project changes will be recorded here.
 
 ## Unreleased
+- Applied the exact Android JNI rustfmt changes for the account edit/remove exports and persistence test before rerunning the Android build gates.
 - Added Android account editing and removal through the shared Rust core. Metadata edits preserve stable IDs, OTP algorithm/digits/mode, groups, favorites, and existing secrets when the replacement-secret field is left blank; removal requires UI confirmation and commits encrypted state.
 - Added native regression coverage for metadata-only edits, optional Base32 secret replacement, stable-ID/configuration preservation, and persisted account removal.
 - Corrected the Android JNI lockfile's `walkdir 2.5.0` checksum to match Cargo's generated lockfile from the successful debug APK artifact; the next CI run verifies `--locked` resolution end to end.
