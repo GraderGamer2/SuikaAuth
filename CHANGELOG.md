@@ -3,6 +3,7 @@
 All notable project changes will be recorded here.
 
 ## Unreleased
+- Removed the extra terminal blank line from the Android JNI source after the formatter reported the remaining EOF-only diff.
 - Applied all rustfmt changes to the Android JNI workspace after the new native HOTP test exposed the formatting gate; Android tests and strict Clippy now run before ABI builds.
 - Added safe Android HOTP consumption: the native bridge advances the counter, encrypts and commits the updated vault, and only then returns the code for clipboard use. HOTP accounts are no longer exposed as copyable stale codes in the account list.
 - Added an RFC 4226 persistence test for sequential HOTP consumption, plus Android JNI formatting, unit-test, and strict Clippy gates. CI also packages the independent Android Cargo.lock with the debug APK artifact.
