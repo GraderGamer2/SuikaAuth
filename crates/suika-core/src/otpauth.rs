@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use zeroize::{Zeroize, Zeroizing};
 
-use crate::accounts::{Account, AccountError, AccountMode};
+use crate::accounts::{Account, AccountError};
 use crate::base32::decode_base32;
 use crate::otp::OtpAlgorithm;
 
@@ -250,6 +250,7 @@ fn hex(value: u8) -> Option<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::accounts::AccountMode;
 
     #[test]
     fn parses_totp_with_defaults_and_issuer_in_label() {
