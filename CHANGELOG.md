@@ -3,6 +3,7 @@
 All notable project changes will be recorded here.
 
 ## Unreleased
+- Replaced the fixed-size Base32 account-ID `chunks_exact` decoder with indexed decoding after Rust 1.100 strict Clippy flagged the iterator pattern; the 32-character input check still guarantees all 16 byte pairs are in bounds.
 - Removed the extra terminal blank line from the Android JNI source after the formatter reported the remaining EOF-only diff.
 - Applied all rustfmt changes to the Android JNI workspace after the new native HOTP test exposed the formatting gate; Android tests and strict Clippy now run before ABI builds.
 - Added safe Android HOTP consumption: the native bridge advances the counter, encrypts and commits the updated vault, and only then returns the code for clipboard use. HOTP accounts are no longer exposed as copyable stale codes in the account list.

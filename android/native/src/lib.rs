@@ -186,12 +186,13 @@ fn parse_account_id(encoded: &str) -> Result<[u8; 16], String> {
     }
 
     let mut id = [0_u8; 16];
-    for (index, pair) in bytes.chunks_exact(2).enumerate() {
-        let high =
-            hex_nibble(pair[0]).ok_or_else(|| "The account identifier is invalid.".to_owned())?;
-        let low =
-            hex_nibble(pair[1]).ok_or_else(|| "The account identifier is invalid.".to_owned())?;
-        id[index] = (high << 4) | low;
+    for (index, byte) in id.iter_mut().enumerate() {
+        let offset = index * 2;
+        let high = hex_nibble(bytes[offset])
+            .ok_or_else(|| "The account identifier is invalid.".to_owned())?;
+        let low = hex_nibble(bytes[offset + 1])
+            .ok_or_else(|| "The account identifier is invalid.".to_owned())?;
+        *byte = (high << 4) | low;
     }
     Ok(id)
 }
