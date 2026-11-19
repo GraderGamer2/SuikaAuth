@@ -85,3 +85,10 @@ The first versioned vault format is documented in VAULT_FORMAT.md. It uses a ran
 The password-wrapped DEK and encrypted account data use separate domain-separated associated-data strings. The account payload AAD binds the format prefix, the wrapped-DEK nonce and ciphertext, and the ciphertext length. Password changes generate a fresh salt and fresh nonces, then rewrap the same DEK and re-encrypt the payload.
 
 The format parser validates KDF cost bounds and file sizes before invoking Argon2id or allocating attacker-controlled payload buffers. Wrong-password and authenticated-content failures are reported through one generic unlock error.
+
+
+## Android device-bound unlock
+
+Android biometric unlock protects the existing password-derived 256-bit KEK with a non-exportable AES-256-GCM key stored by Android Keystore. The key requires authentication for every use by `BIOMETRIC_STRONG` and is configured to invalidate when biometric enrollment changes. AndroidX BiometricPrompt authenticates a `Cipher` operation; the application never treats a biometric callback alone as proof of vault authenticity.
+
+The KEK is encrypted with AES-GCM and a fixed, purpose-specific AAD. The local record stores a version byte, the 12-byte GCM IV, and the 32-byte KEK ciphertext plus 16-byte authentication tag. It resides under the Android no-backup application data root. The Rust core receives the KEK only after Keystore authorizes the operation, then independently verifies the existing vault's XChaCha20-Poly1305 DEK wrapper and account payload. The DEK and decrypted account database remain inside Rust. This is a device convenience layer; it does not change the portable vault format or replace the master password.

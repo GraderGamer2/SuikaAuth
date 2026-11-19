@@ -71,3 +71,21 @@ Install the Android SDK/NDK packages listed above, install Rust stable and the t
     gradle --no-daemon -p android assembleDebug
 
 CI uses the same commands and version pins. The generated JNI shared libraries are build outputs and are not committed.
+
+
+## Optimized release profile and application diagnostics
+
+Both independent Rust workspaces use the same production release settings:
+
+```toml
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+strip = "symbols"
+panic = "abort"
+```
+
+The root profile applies to Linux. The Android JNI workspace defines its own copy because Cargo profile settings are read from the workspace root. Full/fat LTO optimizes across the linked Rust crates and deliberately increases link time. No `target-cpu=native` or host-specific `target-feature` settings are used. The Linux x86-64 executable and Android arm64-v8a/x86_64 libraries retain the standard portable target baselines.
+
+Application code does not initialize loggers, tracing subscribers, profilers, telemetry, or crash-reporting integrations. The Android JNI workspace compiles the transitive Rust `log` facade at `max_level_off`, and both Rust frontends install an empty panic hook so Rust panic details are not printed by the default hook. Platform frameworks and the operating system may still emit their own diagnostics; those are not application logging and are not globally suppressed.

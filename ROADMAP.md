@@ -2,7 +2,7 @@
 
 This is the authoritative project roadmap. Update its checkboxes and the changelog as work is completed. Development follows this order unless a security or correctness issue requires reordering.
 
-Status: **Milestone 5 — Android native frontend (initial vertical slice)**
+Status: **Milestone 6 — Enrollment and migration**
 
 ## 1. Repository and architecture foundation
 
@@ -63,18 +63,18 @@ Status: **Milestone 5 — Android native frontend (initial vertical slice)**
 - [x] Add configurable background auto-lock (immediate, 1, 3, 5, or 10 minutes), persisted under the Android app-private data root.
 - [x] Build and validate installable debug APKs for arm64-v8a and x86_64 in CI.
 - [x] Add account editing and removal with stable IDs, retained secrets by default, and explicit removal confirmation.
-- [ ] Complete broader lifecycle hardening.
-- [ ] Add Android Keystore / BiometricPrompt device-bound DEK unlock and enrollment-change handling.
+- [x] Complete broader lifecycle hardening with ViewModel-owned native-session retention, serialized JNI work, foreground/background lock handling, and explicit cleanup.
+- [x] Add Android Keystore / BiometricPrompt device-bound KEK unlock using a non-exportable AES-256-GCM key, per-use strong-biometric authorization, and invalidation recovery after biometric or device-security enrollment changes.
 
 ## 6. Enrollment and migration
 
 - [x] Add manual TOTP enrollment.
 - [x] Add manual HOTP enrollment.
-- [ ] Parse and validate otpauth URIs.
+- [x] Parse and validate bounded TOTP/HOTP otpauth URIs, including percent encoding, duplicate rejection, issuer consistency, and OTP parameter validation.
 - [ ] Add camera QR scanning on Android.
 - [ ] Add QR image import on Linux.
 - [ ] Add migration from Aegis exports and other documented authenticator formats.
-- [ ] Validate issuer, account label, secret encoding, algorithm, digits, period, and counter.
+- [x] Validate issuer, account label, Base32 secret encoding and length, algorithm, digits, TOTP period, and HOTP counter during URI import.
 
 ## 7. Encrypted backup and restore
 
@@ -103,4 +103,4 @@ Status: **Milestone 5 — Android native frontend (initial vertical slice)**
 
 ## Definition of done
 
-A milestone is complete only when its implementation, tests, documentation, and CI validation agree. A workflow that skips a missing project is not evidence that the missing application has been built.
+A milestone is complete only when its implementation, tests, documentation, and CI validation agree. A workflow that skips a missing project is not evidence that the missing application has been built. Android CI builds and static validation are performed during development; hands-on device validation is intentionally consolidated into the final feature-complete test pass.

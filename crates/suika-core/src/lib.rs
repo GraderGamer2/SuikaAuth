@@ -10,5 +10,6 @@ pub mod accounts;
 pub mod base32;
 pub mod crypto;
 pub mod otp;
+pub mod otpauth;
 pub mod storage;
 pub mod vault;

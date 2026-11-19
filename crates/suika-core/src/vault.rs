@@ -138,7 +138,33 @@ impl Vault {
         let locked = LockedVault::parse(serialized)?;
         let wrapping_key =
             derive_wrapping_key(password, &locked.salt, locked.params).map_err(VaultError::from)?;
+        Self::unlock_with_key(locked, wrapping_key)
+    }
 
+    /// Unlock using the password-derived wrapping key released by a trusted
+    /// platform authenticator, such as Android Keystore after BiometricPrompt.
+    ///
+    /// The wrapping key is validated against the vault's authenticated DEK
+    /// wrapper and payload before a session is created.
+    pub fn unlock_with_device_wrapping_key(
+        serialized: &[u8],
+        wrapping_key_bytes: &[u8],
+    ) -> Result<VaultSession, VaultError> {
+        let locked = LockedVault::parse(serialized)?;
+        if wrapping_key_bytes.len() != 32 {
+            return Err(VaultError::UnlockFailed);
+        }
+
+        let mut key_bytes = Zeroizing::new([0_u8; 32]);
+        key_bytes.copy_from_slice(wrapping_key_bytes);
+        let wrapping_key = SecretKey::from_bytes(*key_bytes);
+        Self::unlock_with_key(locked, wrapping_key)
+    }
+
+    fn unlock_with_key(
+        locked: LockedVault,
+        wrapping_key: SecretKey,
+    ) -> Result<VaultSession, VaultError> {
         let wrapped_key_aad = build_wrap_aad(&locked.prefix);
         let decrypted_key = decrypt(&wrapping_key, &locked.wrapped_key, &wrapped_key_aad)
             .map_err(|_| VaultError::UnlockFailed)?;
@@ -185,6 +211,15 @@ pub struct VaultSession {
 }
 
 impl VaultSession {
+    /// Copy the existing KEK into a zeroizing buffer for platform wrapping.
+    ///
+    /// Callers should hand this buffer directly to a trusted platform keystore
+    /// and clear it immediately after the protected handoff.
+    #[must_use]
+    pub fn device_unlock_wrapping_key(&self) -> Zeroizing<[u8; 32]> {
+        Zeroizing::new(*self.wrapping_key.expose())
+    }
+
     /// Borrow the decrypted account database.
     #[must_use]
     pub fn plaintext(&self) -> &[u8] {
@@ -474,6 +509,33 @@ mod tests {
         let reopened = Vault::unlock(&saved, password)
             .expect("saved vault should unlock with original password");
         assert_eq!(reopened.plaintext(), b"updated database");
+    }
+
+    #[test]
+    fn device_wrapping_key_unlocks_the_same_portable_vault() {
+        let (serialized, session) =
+            Vault::create_session(b"device unlock payload", b"test password", test_params())
+                .expect("vault and session should be created");
+        let wrapping_key = session.device_unlock_wrapping_key();
+
+        let reopened = Vault::unlock_with_device_wrapping_key(&serialized, &wrapping_key[..])
+            .expect("protected wrapping key should unlock the vault");
+        assert_eq!(reopened.plaintext(), b"device unlock payload");
+    }
+
+    #[test]
+    fn device_unlock_rejects_wrong_or_malformed_wrapping_keys() {
+        let (serialized, _session) =
+            Vault::create_session(b"device unlock payload", b"password", test_params())
+                .expect("vault and session should be created");
+        assert_eq!(
+            Vault::unlock_with_device_wrapping_key(&serialized, &[0_u8; 31]).err(),
+            Some(VaultError::UnlockFailed)
+        );
+        assert_eq!(
+            Vault::unlock_with_device_wrapping_key(&serialized, &[0_u8; 32]).err(),
+            Some(VaultError::UnlockFailed)
+        );
     }
 
     #[test]

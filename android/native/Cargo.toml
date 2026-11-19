@@ -14,5 +14,13 @@ getrandom = "=0.4.3"
 jni = { version = "=0.22.4", default-features = false }
 suika-core = { path = "../../crates/suika-core" }
 zeroize = { version = "=1.9.0", default-features = false, features = ["alloc"] }
+log = { version = "=0.4.35", default-features = false, features = ["max_level_off"] }
 
 [workspace]
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+strip = "symbols"
+panic = "abort"

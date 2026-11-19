@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - ".github/workflows/build.yml"
+      - "scripts/**"
       - "Cargo.toml"
       - "Cargo.lock"
       - "rust-toolchain.toml"
@@ -38,6 +39,9 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # actions/checkout v7.0.1
+
+      - name: Enforce no application logging
+        run: bash scripts/check-no-application-logs.sh
 
       - name: Detect Rust workspace and Linux application
         id: detect
@@ -136,6 +140,9 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # actions/checkout v7.0.1
+
+      - name: Enforce no application logging
+        run: bash scripts/check-no-application-logs.sh
 
       - name: Detect Android project
         id: detect

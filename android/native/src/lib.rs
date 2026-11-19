@@ -5,21 +5,33 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Mutex, Once, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use jni::errors::ThrowRuntimeExAndDefault;
 use jni::objects::{JByteArray, JClass, JObjectArray, JString};
 use jni::strings::JNIString;
-use jni::sys::{jboolean, jint, jlong, jobjectArray};
+use jni::sys::{jboolean, jbyteArray, jint, jlong, jobjectArray};
 use jni::{Env, EnvUnowned};
 use suika_core::accounts::{Account, AccountDatabase, AccountMode};
 use suika_core::base32::decode_base32;
 use suika_core::crypto::KdfParams;
 use suika_core::otp::OtpAlgorithm;
+use suika_core::otpauth::parse_otpauth_uri;
 use suika_core::storage::{StorageError, VaultStore};
 use suika_core::vault::{Vault, VaultSession};
 use zeroize::Zeroizing;
+
+#[unsafe(no_mangle)]
+pub extern "system" fn JNI_OnLoad(
+    _vm: *mut std::ffi::c_void,
+    _reserved: *mut std::ffi::c_void,
+) -> jint {
+    static PANIC_HOOK: Once = Once::new();
+    PANIC_HOOK.call_once(|| std::panic::set_hook(Box::new(|_| {})));
+    jni::sys::JNI_VERSION_1_6
+}
+
 
 const APP_DIRECTORY: &str = "SuikaAuthenticator";
 const MAX_SESSION_HANDLE_ATTEMPTS: usize = 8;
@@ -96,6 +108,31 @@ fn unlock_vault(app_private_root: &str, password: &[u8]) -> Result<u64, String> 
         vault,
         accounts,
     })
+}
+
+fn unlock_vault_with_device_key(app_private_root: &str, wrapping_key: &[u8]) -> Result<u64, String> {
+    let store = open_store(app_private_root)?;
+    let serialized = store.load().map_err(|error| error.to_string())?;
+    let vault = Vault::unlock_with_device_wrapping_key(&serialized, wrapping_key)
+        .map_err(|error| error.to_string())?;
+    let accounts = AccountDatabase::decode(vault.plaintext()).map_err(|error| error.to_string())?;
+    insert_session(NativeSession {
+        store,
+        vault,
+        accounts,
+    })
+}
+
+fn export_device_unlock_key(handle: jlong) -> Result<Zeroizing<[u8; 32]>, String> {
+    let handle =
+        u64::try_from(handle).map_err(|_| "Native session handle is invalid.".to_owned())?;
+    let registry = sessions()
+        .lock()
+        .map_err(|_| "Native session registry is unavailable.".to_owned())?;
+    let session = registry
+        .get(&handle)
+        .ok_or_else(|| "The native vault session is no longer active.".to_owned())?;
+    Ok(session.vault.device_unlock_wrapping_key())
 }
 
 fn vault_exists(app_private_root: &str) -> Result<bool, String> {
@@ -176,6 +213,31 @@ fn add_totp(
     candidate
         .insert(account)
         .map_err(|error| error.to_string())?;
+    persist_candidate(session, candidate)
+}
+
+fn import_otpauth_uri(handle: jlong, encoded_uri: &[u8]) -> Result<(), String> {
+    if encoded_uri.len() > 4096 {
+        return Err("The provisioning URI exceeds the supported 4096-byte limit.".to_owned());
+    }
+    let uri = std::str::from_utf8(encoded_uri)
+        .map_err(|_| "The provisioning URI is not valid UTF-8.".to_owned())?;
+    let account = parse_otpauth_uri(uri).map_err(|error| error.to_string())?;
+    let handle =
+        u64::try_from(handle).map_err(|_| "Native session handle is invalid.".to_owned())?;
+    let mut registry = sessions()
+        .lock()
+        .map_err(|_| "Native session registry is unavailable.".to_owned())?;
+    let session = registry
+        .get_mut(&handle)
+        .ok_or_else(|| "The native vault session is no longer active.".to_owned())?;
+    let candidate_bytes = session
+        .accounts
+        .encode()
+        .map_err(|error| error.to_string())?;
+    let mut candidate =
+        AccountDatabase::decode(&candidate_bytes).map_err(|error| error.to_string())?;
+    candidate.insert(account).map_err(|error| error.to_string())?;
     persist_candidate(session, candidate)
 }
 
@@ -424,6 +486,42 @@ pub extern "system" fn Java_org_suika_suikaauthenticator_NativeBridge_nativeUnlo
 }
 
 #[unsafe(no_mangle)]
+pub extern "system" fn Java_org_suika_suikaauthenticator_NativeBridge_nativeUnlockVaultWithDeviceKey<'local>(
+    mut unowned_env: EnvUnowned<'local>,
+    _class: JClass<'local>,
+    root: JString<'local>,
+    wrapping_key: JByteArray<'local>,
+) -> jlong {
+    unowned_env
+        .with_env(|env| -> jni::errors::Result<jlong> {
+            let root = root.try_to_string(env)?;
+            let wrapping_key = Zeroizing::new(env.convert_byte_array(&wrapping_key)?);
+            match unlock_vault_with_device_key(&root, &wrapping_key) {
+                Ok(handle) => Ok(handle as jlong),
+                Err(message) => throw_state_error(env, &message),
+            }
+        })
+        .resolve::<ThrowRuntimeExAndDefault>()
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_org_suika_suikaauthenticator_NativeBridge_nativeExportDeviceUnlockKey<'local>(
+    mut unowned_env: EnvUnowned<'local>,
+    _class: JClass<'local>,
+    handle: jlong,
+) -> jbyteArray {
+    unowned_env
+        .with_env(|env| -> jni::errors::Result<jbyteArray> {
+            let key = match export_device_unlock_key(handle) {
+                Ok(key) => key,
+                Err(message) => return throw_state_error(env, &message),
+            };
+            Ok(env.byte_array_from_slice(&key[..])?.into_raw())
+        })
+        .resolve::<ThrowRuntimeExAndDefault>()
+}
+
+#[unsafe(no_mangle)]
 pub extern "system" fn Java_org_suika_suikaauthenticator_NativeBridge_nativeLockVault<'local>(
     mut unowned_env: EnvUnowned<'local>,
     _class: JClass<'local>,
@@ -496,6 +594,24 @@ pub extern "system" fn Java_org_suika_suikaauthenticator_NativeBridge_nativeAddT
                 digits,
                 period_seconds,
             ) {
+                Ok(()) => Ok(()),
+                Err(message) => throw_state_error(env, &message),
+            }
+        })
+        .resolve::<ThrowRuntimeExAndDefault>()
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_org_suika_suikaauthenticator_NativeBridge_nativeImportOtpAuthUri<'local>(
+    mut unowned_env: EnvUnowned<'local>,
+    _class: JClass<'local>,
+    handle: jlong,
+    encoded_uri: JByteArray<'local>,
+) {
+    unowned_env
+        .with_env(|env| -> jni::errors::Result<()> {
+            let encoded_uri = Zeroizing::new(env.convert_byte_array(&encoded_uri)?);
+            match import_otpauth_uri(handle, &encoded_uri) {
                 Ok(()) => Ok(()),
                 Err(message) => throw_state_error(env, &message),
             }
@@ -592,6 +708,97 @@ mod tests {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.0);
         }
+    }
+
+    #[test]
+    fn provisioning_uri_import_persists_totp_and_hotp_accounts() {
+        let temporary = TestDirectory::new();
+        let store =
+            VaultStore::open(temporary.0.join(APP_DIRECTORY)).expect("vault store should open");
+        let accounts = AccountDatabase::new();
+        let plaintext = accounts.encode().expect("account database should encode");
+        let params = KdfParams::new(64 * 1024, 1, 1).expect("test KDF profile");
+        let (serialized, vault) = Vault::create_session(&plaintext, b"test password", params)
+            .expect("encrypted vault and unlocked session should be created");
+        store
+            .save_new(&serialized)
+            .expect("initial vault should be saved");
+        let handle = insert_session(NativeSession {
+            store,
+            vault,
+            accounts,
+        })
+        .expect("native session handle should be allocated");
+
+        let secret = "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP";
+        import_otpauth_uri(
+            handle as jlong,
+            format!(
+                "otpauth://totp/Example%20Issuer:alice%40example.com?secret={secret}&algorithm=SHA256&digits=8&period=60"
+            ).as_bytes(),
+        )
+        .expect("TOTP provisioning URI should import");
+        import_otpauth_uri(
+            handle as jlong,
+            format!(
+                "otpauth://hotp/Example:backup?secret={secret}&counter=9&algorithm=SHA512&digits=7"
+            ).as_bytes(),
+        )
+        .expect("HOTP provisioning URI should import");
+
+        let mut registry = sessions()
+            .lock()
+            .expect("session registry should remain available");
+        let session = registry
+            .remove(&(handle))
+            .expect("native session should remain active");
+        assert_eq!(session.accounts.len(), 2);
+        let persisted = Vault::unlock(
+            &session.store.load().expect("persisted vault should load"),
+            b"test password",
+        )
+        .expect("persisted vault should unlock");
+        let restored = AccountDatabase::decode(persisted.plaintext())
+            .expect("persisted accounts should decode");
+        assert_eq!(restored.len(), 2);
+        assert_eq!(restored.accounts()[0].issuer(), "Example Issuer");
+        assert_eq!(restored.accounts()[0].label(), "alice@example.com");
+        assert_eq!(restored.accounts()[0].algorithm(), OtpAlgorithm::Sha256);
+        assert_eq!(
+            restored.accounts()[0].mode(),
+            AccountMode::Totp { period_seconds: 60 }
+        );
+        assert_eq!(restored.accounts()[1].issuer(), "Example");
+        assert_eq!(restored.accounts()[1].label(), "backup");
+        assert_eq!(restored.accounts()[1].algorithm(), OtpAlgorithm::Sha512);
+        assert_eq!(
+            restored.accounts()[1].mode(),
+            AccountMode::Hotp { counter: 9 }
+        );
+    }
+
+    #[test]
+    fn invalid_provisioning_uri_does_not_modify_vault() {
+        let temporary = TestDirectory::new();
+        let store =
+            VaultStore::open(temporary.0.join(APP_DIRECTORY)).expect("vault store should open");
+        let accounts = AccountDatabase::new();
+        let plaintext = accounts.encode().expect("account database should encode");
+        let params = KdfParams::new(64 * 1024, 1, 1).expect("test KDF profile");
+        let (serialized, vault) = Vault::create_session(&plaintext, b"test password", params)
+            .expect("encrypted vault and unlocked session should be created");
+        store.save_new(&serialized).expect("initial vault should be saved");
+        let handle = insert_session(NativeSession {
+            store,
+            vault,
+            accounts,
+        }).expect("native session should be allocated");
+
+        assert!(import_otpauth_uri(handle as jlong, b"otpauth://totp/alice?secret=invalid!").is_err());
+        let registry = sessions().lock().expect("session registry should remain available");
+        let session = registry.get(&handle).expect("native session should remain active");
+        assert!(session.accounts.is_empty());
+        registry.remove(&handle);
     }
 
     #[test]

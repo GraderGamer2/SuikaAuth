@@ -1,7 +1,11 @@
 package org.suika.suikaauthenticator
 
-import android.app.Activity
 import android.app.AlertDialog
+import androidx.biometric.BiometricManager
+import androidx.biometric.BiometricPrompt
+import androidx.core.content.ContextCompat
+import androidx.fragment.app.FragmentActivity
+import androidx.lifecycle.ViewModelProvider
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -27,16 +31,22 @@ import android.widget.Toast
 import java.io.File
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.ExecutorService
-import java.util.concurrent.Executors
+import javax.crypto.Cipher
 
-class MainActivity : Activity() {
-    private val worker: ExecutorService = Executors.newSingleThreadExecutor()
+class MainActivity : FragmentActivity() {
+    private lateinit var appState: AuthenticatorSessionViewModel
+    private lateinit var worker: ExecutorService
     private val handler = Handler(Looper.getMainLooper())
     private val inactivityTimeoutMs = 5 * 60 * 1000L
     private val backgroundLock = Runnable { lockSession(showAuthentication = true) }
     private var backgroundLockTimeoutMs = 0L
     private var activeHandle: Long? = null
     private var vaultExists: Boolean? = null
+    private var activeBiometricPrompt: BiometricPrompt? = null
+    private var biometricPromptVisible = false
+    private var activityStarted = false
+    private var biometricEnrollmentInProgress = false
+    private var pendingDeviceUnlockKey: ByteArray? = null
     private var isRefreshing = false
     private val pendingHotp = mutableSetOf<String>()
 
@@ -79,35 +89,48 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        appState = ViewModelProvider(this).get(AuthenticatorSessionViewModel::class.java)
+        worker = appState.worker
+        activeHandle = appState.nativeSessionHandle
         backgroundLockTimeoutMs = loadBackgroundLockTimeout()
         buildShell()
-        status.text = "Checking encrypted vault…"
-        worker.execute {
-            val result = runCatching { NativeBridge.nativeHasVault(noBackupFilesDir.absolutePath) }
-            runOnUiThread {
-                result.onSuccess {
-                    vaultExists = it
-                    renderAuthentication(it)
-                }.onFailure { showError(it) }
+        if (activeHandle != null) {
+            vaultExists = true
+            showVault()
+        } else {
+            status.text = "Checking encrypted vault…"
+            worker.execute {
+                val result = runCatching { NativeBridge.nativeHasVault(noBackupFilesDir.absolutePath) }
+                runOnUiThread {
+                    if (!isFinishing && !isDestroyed) {
+                        result.onSuccess {
+                            vaultExists = it
+                            renderAuthentication(it)
+                        }.onFailure { showError(it) }
+                    }
+                }
             }
         }
     }
 
     override fun onStart() {
         super.onStart()
+        activityStarted = true
         handler.removeCallbacks(backgroundLock)
         if (activeHandle == null && vaultExists == true && content.childCount > 0) {
             renderAuthentication(existingVault = true)
         } else if (activeHandle != null) {
+            handler.removeCallbacks(accountRefresh)
             handler.post(accountRefresh)
             resetInactivityTimer()
         }
     }
 
     override fun onStop() {
+        activityStarted = false
         handler.removeCallbacks(accountRefresh)
         handler.removeCallbacks(inactivityLock)
-        if (activeHandle != null) {
+        if (!isChangingConfigurations && !biometricPromptVisible && activeHandle != null) {
             if (backgroundLockTimeoutMs == 0L) {
                 lockSession(showAuthentication = true)
             } else {
@@ -120,8 +143,12 @@ class MainActivity : Activity() {
 
     override fun onDestroy() {
         handler.removeCallbacksAndMessages(null)
-        if (activeHandle != null) lockSession(showAuthentication = false)
-        worker.shutdown()
+        if (isChangingConfigurations) {
+            if (biometricPromptVisible) cancelBiometricPrompt()
+        } else {
+            cancelBiometricPrompt()
+            if (activeHandle != null) lockSession(showAuthentication = false)
+        }
         super.onDestroy()
     }
 
@@ -151,6 +178,9 @@ class MainActivity : Activity() {
         content.removeAllViews()
         addHeading("SuikaAuthenticator")
         addText(if (existingVault) "Unlock your encrypted vault" else "Create your encrypted vault", 16f)
+        if (existingVault && DeviceUnlockStore.hasWrappedKey(this)) {
+            addButton("Unlock with biometrics").setOnClickListener { beginBiometricUnlock() }
+        }
         val password = addPasswordField("Master password")
         val confirmation = if (existingVault) null else addPasswordField("Confirm master password")
         password.imeOptions = EditorInfo.IME_ACTION_DONE
@@ -201,6 +231,7 @@ class MainActivity : Activity() {
             runOnUiThread {
                 result.onSuccess { handle ->
                     activeHandle = handle
+                    appState.nativeSessionHandle = handle
                     vaultExists = true
                     showVault()
                 }.onFailure {
@@ -223,6 +254,20 @@ class MainActivity : Activity() {
         addButton("Lock vault").setOnClickListener { lockSession(showAuthentication = true) }
 
         addSectionTitle("Security")
+        addButton("Enable / replace biometric unlock").setOnClickListener {
+            enableBiometricUnlock()
+        }
+        if (DeviceUnlockStore.hasWrappedKey(this)) {
+            addButton("Disable biometric unlock").setOnClickListener {
+                runCatching { DeviceUnlockStore.clear(applicationContext) }
+                    .onSuccess { status.text = "Biometric unlock disabled on this device." }
+                    .onFailure { showError(it) }
+            }
+        }
+        addText(
+            "Biometric unlock is device-specific. Your master password remains the recovery method.",
+            12f
+        )
         val lockChoices = arrayOf(
             "Immediately",
             "After 1 minute",
@@ -245,9 +290,12 @@ class MainActivity : Activity() {
         accountList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         content.addView(accountList, matchWidthWrapHeight())
 
-        addSectionTitle("Add TOTP account")
+        addSectionTitle("Add authenticator account")
+        addText("Paste an otpauth:// provisioning URI or enter the account details and Base32 secret manually.", 13f)
         val issuer = addTextField("Issuer (optional)")
         val label = addTextField("Account name")
+        val provisioningUri = addPasswordField("Provisioning URI (optional)")
+        provisioningUri.filters = arrayOf(android.text.InputFilter.LengthFilter(4096))
         val secret = addPasswordField("Base32 secret")
         val algorithm = addDropdownField(
             "HMAC algorithm",
@@ -263,6 +311,36 @@ class MainActivity : Activity() {
         val add = addButton("Add account")
         add.setOnClickListener {
             val handle = activeHandle ?: return@setOnClickListener
+            val encodedUri = provisioningUri.text.toString().toByteArray(StandardCharsets.UTF_8)
+            provisioningUri.text?.clear()
+            if (encodedUri.isNotEmpty()) {
+                secret.text?.clear()
+                if (encodedUri.size > 4096) {
+                    encodedUri.fill(0)
+                    status.text = "The provisioning URI exceeds the supported 4096-byte limit."
+                    return@setOnClickListener
+                }
+                add.isEnabled = false
+                worker.execute {
+                    val result = runCatching {
+                        NativeBridge.nativeImportOtpAuthUri(handle, encodedUri)
+                    }
+                    encodedUri.fill(0)
+                    runOnUiThread {
+                        add.isEnabled = true
+                        if (activeHandle == handle) {
+                            result.onSuccess {
+                                issuer.text?.clear()
+                                label.text?.clear()
+                                status.text = "Authenticator imported and encrypted."
+                                refreshAccountsNow()
+                            }.onFailure { showError(it) }
+                        }
+                    }
+                }
+                return@setOnClickListener
+            }
+
             val issuerText = issuer.text.toString()
             val labelText = label.text.toString()
             val encodedSecret = secret.text.toString().toByteArray(StandardCharsets.US_ASCII)
@@ -328,8 +406,280 @@ class MainActivity : Activity() {
 
             override fun onNothingSelected(parent: AdapterView<*>?) = Unit
         }
-        handler.post(accountRefresh)
+        handler.removeCallbacks(accountRefresh)
+        handler.removeCallbacks(accountRefresh)
+        if (activityStarted) handler.post(accountRefresh)
         resetInactivityTimer()
+    }
+
+    private fun enableBiometricUnlock() {
+        val handle = activeHandle ?: return
+        val biometricStatus = BiometricManager.from(this)
+            .canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_STRONG)
+        if (biometricStatus != BiometricManager.BIOMETRIC_SUCCESS) {
+            status.text = when (biometricStatus) {
+                BiometricManager.BIOMETRIC_ERROR_NONE_ENROLLED ->
+                    "Enroll a strong biometric in Android settings before enabling biometric unlock."
+                BiometricManager.BIOMETRIC_ERROR_NO_HARDWARE ->
+                    "This device does not have compatible strong biometric hardware."
+                BiometricManager.BIOMETRIC_ERROR_HW_UNAVAILABLE ->
+                    "Biometric hardware is temporarily unavailable."
+                else -> "Strong biometric authentication is not available on this device."
+            }
+            return
+        }
+
+        status.text = "Preparing device-bound unlock…"
+        worker.execute {
+            val result = runCatching {
+                val wrappingKey = NativeBridge.nativeExportDeviceUnlockKey(handle)
+                try {
+                    val cipher = DeviceUnlockStore.prepareEncryptionCipher(applicationContext)
+                    Pair(wrappingKey, cipher)
+                } catch (error: Throwable) {
+                    wrappingKey.fill(0)
+                    runCatching { DeviceUnlockStore.clear(applicationContext) }
+                    throw error
+                }
+            }
+            runOnUiThread {
+                if (activeHandle != handle || isFinishing || isDestroyed) {
+                    result.getOrNull()?.first?.fill(0)
+                    runCatching { DeviceUnlockStore.clear(applicationContext) }
+                    return@runOnUiThread
+                }
+                result.onSuccess { (wrappingKey, cipher) ->
+                    pendingDeviceUnlockKey = wrappingKey
+                    biometricEnrollmentInProgress = true
+                    authenticateWithBiometric(
+                        cipher,
+                        "Enable biometric unlock",
+                        "Cancel",
+                        onAuthenticated = { authenticatedCipher ->
+                            val material = pendingDeviceUnlockKey
+                            pendingDeviceUnlockKey = null
+                            if (material == null) {
+                                runCatching { DeviceUnlockStore.clear(applicationContext) }
+                                biometricEnrollmentInProgress = false
+                                status.text = "Biometric enrollment was canceled."
+                                return@authenticateWithBiometric
+                            }
+                            val encrypted = runCatching {
+                                authenticatedCipher.doFinal(material)
+                            }
+                            material.fill(0)
+                            encrypted.onSuccess { ciphertext ->
+                                val iv = authenticatedCipher.iv
+                                worker.execute {
+                                    val saved = runCatching {
+                                        DeviceUnlockStore.store(applicationContext, iv, ciphertext)
+                                    }
+                                    ciphertext.fill(0)
+                                    iv.fill(0)
+                                    runOnUiThread {
+                                        biometricEnrollmentInProgress = false
+                                        if (activeHandle == handle && !isFinishing && !isDestroyed) {
+                                            if (saved.isSuccess) {
+                                                status.text = "Biometric unlock enabled on this device."
+                                            } else {
+                                                runCatching { DeviceUnlockStore.clear(applicationContext) }
+                                                saved.onFailure { showError(it) }
+                                            }
+                                        } else {
+                                            runCatching { DeviceUnlockStore.clear(applicationContext) }
+                                        }
+                                    }
+                                }
+                            }.onFailure {
+                                runCatching { DeviceUnlockStore.clear(applicationContext) }
+                                biometricEnrollmentInProgress = false
+                                showError(it)
+                            }
+                        },
+                        onError = { _, message ->
+                            pendingDeviceUnlockKey?.fill(0)
+                            pendingDeviceUnlockKey = null
+                            biometricEnrollmentInProgress = false
+                            runCatching { DeviceUnlockStore.clear(applicationContext) }
+                            if (!isFinishing && !isDestroyed) status.text = message
+                        }
+                    )
+                }.onFailure {
+                    if (!isFinishing && !isDestroyed) showError(it)
+                }
+            }
+        }
+    }
+
+    private fun beginBiometricUnlock() {
+        if (activeHandle != null) return
+        val wrapped = runCatching { DeviceUnlockStore.load(applicationContext) }
+            .getOrElse {
+                runCatching { DeviceUnlockStore.clear(applicationContext) }
+                status.text = "Biometric unlock data is unavailable. Use your master password."
+                return
+            } ?: run {
+                status.text = "Biometric unlock is not configured. Use your master password."
+                return
+            }
+
+        val cipher = try {
+            DeviceUnlockStore.prepareDecryptionCipher(wrapped.iv)
+        } catch (error: android.security.keystore.KeyPermanentlyInvalidatedException) {
+            wrapped.iv.fill(0)
+            wrapped.ciphertext.fill(0)
+            runCatching { DeviceUnlockStore.clear(applicationContext) }
+            status.text = "Device security or biometric enrollment changed. Unlock with your master password, then enable biometrics again."
+            return
+        } catch (error: Throwable) {
+            wrapped.iv.fill(0)
+            wrapped.ciphertext.fill(0)
+            runCatching { DeviceUnlockStore.clear(applicationContext) }
+            showError(error)
+            return
+        }
+
+        authenticateWithBiometric(
+            cipher,
+            "Unlock SuikaAuthenticator",
+            "Use master password",
+            onAuthenticated = { authenticatedCipher ->
+                val material = runCatching {
+                    authenticatedCipher.doFinal(wrapped.ciphertext)
+                }.getOrElse {
+                    wrapped.iv.fill(0)
+                    wrapped.ciphertext.fill(0)
+                    runCatching { DeviceUnlockStore.clear(applicationContext) }
+                    status.text = "Biometric unlock failed. Use your master password."
+                    return@authenticateWithBiometric
+                }
+                wrapped.iv.fill(0)
+                wrapped.ciphertext.fill(0)
+                if (material.size != 32) {
+                    material.fill(0)
+                    runCatching { DeviceUnlockStore.clear(applicationContext) }
+                    status.text = "Biometric unlock data is invalid. Use your master password."
+                    return@authenticateWithBiometric
+                }
+
+                status.text = "Unlocking encrypted vault…"
+                worker.execute {
+                    val result = runCatching {
+                        NativeBridge.nativeUnlockVaultWithDeviceKey(
+                            noBackupFilesDir.absolutePath,
+                            material
+                        )
+                    }
+                    material.fill(0)
+                    runOnUiThread {
+                        result.onSuccess { handle ->
+                            if (activeHandle == null && !isFinishing && !isDestroyed) {
+                                activeHandle = handle
+                                appState.nativeSessionHandle = handle
+                                vaultExists = true
+                                showVault()
+                                applyBackgroundLockPolicy()
+                            } else {
+                                worker.execute { runCatching { NativeBridge.nativeLockVault(handle) } }
+                            }
+                        }.onFailure {
+                            runCatching { DeviceUnlockStore.clear(applicationContext) }
+                            if (!isFinishing && !isDestroyed) {
+                                status.text = "Biometric unlock was rejected. Use your master password."
+                            }
+                        }
+                    }
+                }
+            },
+            onError = { errorCode, message ->
+                wrapped.iv.fill(0)
+                wrapped.ciphertext.fill(0)
+                if (!isFinishing && !isDestroyed) {
+                    status.text = if (errorCode == BiometricPrompt.ERROR_NEGATIVE_BUTTON) {
+                        "Enter your master password to unlock."
+                    } else {
+                        message
+                    }
+                }
+            }
+        )
+    }
+
+    private fun authenticateWithBiometric(
+        cipher: Cipher,
+        title: String,
+        negativeButton: String,
+        onAuthenticated: (Cipher) -> Unit,
+        onError: (Int, CharSequence) -> Unit
+    ) {
+        val prompt = BiometricPrompt(
+            this,
+            ContextCompat.getMainExecutor(this),
+            object : BiometricPrompt.AuthenticationCallback() {
+                override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
+                    biometricPromptVisible = false
+                    activeBiometricPrompt = null
+                    onError(errorCode, errString)
+                    applyBackgroundLockPolicy()
+                }
+
+                override fun onAuthenticationSucceeded(
+                    result: BiometricPrompt.AuthenticationResult
+                ) {
+                    biometricPromptVisible = false
+                    activeBiometricPrompt = null
+                    val authenticatedCipher = result.cryptoObject?.cipher
+                    if (authenticatedCipher == null) {
+                        onError(
+                            BiometricPrompt.ERROR_UNABLE_TO_PROCESS,
+                            "Biometric authentication did not return a cryptographic operation."
+                        )
+                    } else {
+                        onAuthenticated(authenticatedCipher)
+                    }
+                    applyBackgroundLockPolicy()
+                }
+
+                override fun onAuthenticationFailed() {
+                    if (::status.isInitialized && !isFinishing && !isDestroyed) {
+                        status.text = "Biometric not recognized. Try again."
+                    }
+                }
+            }
+        )
+        activeBiometricPrompt = prompt
+        biometricPromptVisible = true
+        val promptInfo = BiometricPrompt.PromptInfo.Builder()
+            .setTitle(title)
+            .setSubtitle("Authenticate with this device to protect your encrypted vault")
+            .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG)
+            .setNegativeButtonText(negativeButton)
+            .build()
+        prompt.authenticate(promptInfo, BiometricPrompt.CryptoObject(cipher))
+    }
+
+    private fun applyBackgroundLockPolicy() {
+        if (activityStarted || isChangingConfigurations || isFinishing || isDestroyed || activeHandle == null) {
+            return
+        }
+        handler.removeCallbacks(backgroundLock)
+        if (backgroundLockTimeoutMs == 0L) {
+            lockSession(showAuthentication = true)
+        } else {
+            handler.postDelayed(backgroundLock, backgroundLockTimeoutMs)
+        }
+    }
+
+    private fun cancelBiometricPrompt() {
+        activeBiometricPrompt?.cancelAuthentication()
+        activeBiometricPrompt = null
+        biometricPromptVisible = false
+        pendingDeviceUnlockKey?.fill(0)
+        pendingDeviceUnlockKey = null
+        if (biometricEnrollmentInProgress) {
+            runCatching { DeviceUnlockStore.clear(applicationContext) }
+            biometricEnrollmentInProgress = false
+        }
     }
 
     private fun refreshAccountsNow() {
@@ -551,10 +901,12 @@ class MainActivity : Activity() {
     }
 
     private fun lockSession(showAuthentication: Boolean) {
+        cancelBiometricPrompt()
         handler.removeCallbacks(accountRefresh)
         handler.removeCallbacks(inactivityLock)
         val handle = activeHandle
         activeHandle = null
+        appState.nativeSessionHandle = null
         if (handle != null) worker.execute { runCatching { NativeBridge.nativeLockVault(handle) } }
         if (showAuthentication && vaultExists != null && !isFinishing) renderAuthentication(existingVault = true)
     }

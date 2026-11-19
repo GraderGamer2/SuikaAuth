@@ -32,13 +32,7 @@ The native bridge returns a Java boolean for vault-existence checks and uses JNI
 
 The initial Android frontend exposes a narrow JNI API for vault existence checks, vault creation, password unlock, account listing, TOTP enrollment, account editing/removal, HOTP code consumption, and explicit session locking. Metadata-only edits never request or expose an existing secret; a blank replacement-secret field retains the current zeroizing core buffer. Removal persists the encrypted account database. HOTP codes are returned only after the incremented counter has been encrypted and saved. The bridge exposes only display metadata and generated codes, never raw account secrets.
 
-The remaining JNI work covers:
-
-- creating and unlocking the encrypted vault;
-- listing account display data and generating current codes;
-- adding, updating, and removing TOTP/HOTP accounts;
-- advancing an HOTP counter and persisting it before returning the consumed code;
-- explicitly locking and dropping an unlocked session.
+The JNI bridge currently exposes vault creation and password unlock, device-wrapped KEK unlock, explicit session locking, account listing, manual TOTP enrollment, provisioning-URI import, account editing/removal, HOTP consumption, and an explicit export of the password-derived wrapping key for the one-time Android Keystore enrollment operation. The native session registry validates opaque handles on every call. The bridge never returns the DEK or decrypted account database to Kotlin. The wrapping-key export exists only to allow the platform Keystore to encrypt that existing KEK; callers must zero the returned byte array immediately after wrapping it.
 
 The bridge must not return raw OTP secrets or the decrypted account-database blob to Kotlin. It returns only display metadata and the code required by the current view. The Rust side retains the unlocked `VaultSession` and account database while the application is unlocked.
 
@@ -64,9 +58,17 @@ The vault file uses the exact same versioned container and account-database form
 
 ## Lifecycle and biometric roadmap
 
-The Android frontend locks on explicit user request, after five minutes of inactivity, and when the app becomes no longer visible according to a user-selected timeout: immediately (the default), or after 1, 3, 5, or 10 minutes. A pending background lock is canceled if the user returns before the selected delay expires. The timeout preference is stored in `noBackupFilesDir/SuikaAuthenticator/background-lock-timeout-ms`, alongside the encrypted vault and other app-owned state. The lifecycle must drop the native unlocked-session handle when the selected lock expires or the process is shutting down; process death is not a substitute for the explicit lock path.
+The Android frontend locks on explicit user request, after five minutes of inactivity, and when the app becomes no longer visible according to a user-selected timeout: immediately (the default), or after 1, 3, 5, or 10 minutes. A pending background lock is canceled if the user returns before the selected delay expires. The timeout preference is stored in `noBackupFilesDir/SuikaAuthenticator/background-lock-timeout-ms`, alongside the encrypted vault and other app-owned state. The lifecycle drops the native session handle on explicit lock, five-minute inactivity, the selected background timeout, and final Activity destruction. A ViewModel owns the process-local native handle and a single-thread worker across configuration changes, preventing duplicate sessions and serializing vault file operations. A process restart loses the in-memory native registry and returns to authentication; neither the handle nor account data is placed in saved-instance state. Configuration changes during a biometric prompt cancel that prompt safely; an unfinished biometric enrollment is discarded and can be restarted. If the app backgrounds while a prompt is active, the selected background-lock policy is applied when the prompt finishes or is dismissed.
 
-Biometric unlock is a later milestone. It must use Android Keystore for a non-exportable, device-bound wrapping key and BiometricPrompt for authorization. A biometric match by itself must never be treated as cryptographic vault authentication. The master password remains the portable recovery method.
+### Device-bound biometric unlock
+
+Biometric unlock is optional and device-specific. It uses a non-exportable AES-256-GCM key in Android Keystore. The key requires authentication for every cryptographic operation using strong biometrics only, and is invalidated when biometric enrollment changes. AndroidX BiometricPrompt authorizes a `Cipher` operation; a successful biometric callback without the authorized CryptoObject cannot unlock the vault.
+
+The encrypted vault format is unchanged. After the master password unlocks a vault, an explicit user action may export the existing password-derived 256-bit KEK from the native session to Kotlin. Kotlin immediately encrypts it with the device Keystore key and stores only a version byte, 12-byte GCM IV, and 48-byte AES-GCM ciphertext/tag under `noBackupFilesDir/SuikaAuthenticator/device-unlock.bin`. The DEK and decrypted account database never leave Rust. On biometric unlock, Keystore releases the KEK only through the authorized Cipher operation; JNI passes it back to Rust, which independently authenticates the existing vault's wrapped DEK and encrypted payload before creating a native session.
+
+The master password remains available at all times as the portable recovery method. If Android reports permanent key invalidation after biometric or device-security changes, SuikaAuthenticator deletes the stale wrapped record and alias, then requests the master password so a new device-bound key can be enrolled. Disabling biometric unlock deletes both the wrapped record and Keystore alias. If a device has no strong biometric hardware or no biometric is enrolled, the master-password flow remains fully functional.
+
+The app uses AndroidX Biometric 1.1.0, the stable dependency line, with API 26+ support. Only `BIOMETRIC_STRONG` is accepted; device-credential fallback is not used for this per-operation key. Keystore key material is system-managed, while the wrapped ciphertext remains below the single application data root.
 
 ## CI responsibilities
 
@@ -76,7 +78,9 @@ The Android CI job must:
 2. install the pinned Rust toolchain and Android compilation targets;
 3. install the pinned `cargo-ndk` tool;
 4. build the JNI bridge for both declared ABIs into `jniLibs`;
-5. run Gradle tests/build checks and assemble a debug APK;
-6. include the APK, build information, and SHA-256 checksum in the one-day Actions artifact.
+5. verify formatting, Rust tests, and strict Clippy; cross-compile the JNI library for both ABIs using the optimized release profile;
+6. assemble a debug APK and include the APK, build information, and SHA-256 checksum in the one-day Actions artifact.
+
+Both Rust workspaces use `opt-level = 3`, full/fat LTO, one codegen unit, symbol stripping, and aborting panic strategy. No build-host-specific CPU flags are forced: the Linux x86-64 binary and Android ABI libraries use their target triples' portable defaults. The app has no logging/tracing backend or telemetry; Android's transitive Rust `log` facade is compiled with `max_level_off`, and the JNI library installs an empty Rust panic hook.
 
 Production signing and release provenance remain separate from the debug APK workflow.

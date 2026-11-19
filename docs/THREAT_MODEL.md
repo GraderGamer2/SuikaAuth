@@ -19,6 +19,7 @@ Status: initial design baseline; update this document whenever the security arch
 4. Keep the same encrypted vault format portable between Linux and Android.
 5. Avoid remote accounts, cloud services, telemetry, and mandatory operating-system keyrings.
 6. Minimize the lifetime of plaintext secrets and derived keys in process memory.
+7. Do not persist application logs, tracing output, telemetry, crash-reporting data, or diagnostic files.
 
 ## Assumptions and limits
 
@@ -47,7 +48,9 @@ Status: initial design baseline; update this document whenever the security arch
 - Atomic vault replacement and preservation of the previous valid file during writes.
 - No plaintext temporary database or plaintext backup.
 - Zeroization of key material and decrypted buffers where practical.
-- No secrets in logs, crash messages, command-line arguments, or telemetry.
+- No application logs, tracing, profiling, telemetry, or crash-reporting SDKs.
+- Rust panic hooks suppress default panic details; panics still terminate according to the release panic strategy.
+- No secrets in command-line arguments or externally visible diagnostic output.
 
 ## Out of scope for the initial release
 

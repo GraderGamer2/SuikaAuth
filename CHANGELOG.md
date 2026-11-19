@@ -3,6 +3,14 @@
 All notable project changes will be recorded here.
 
 ## Unreleased
+- Enforced an application-level no-logging policy: no log/tracing initialization, logging macros, profiling, telemetry, or crash-reporting integration; Rust panic hooks suppress default panic details. The Android JNI dependency graph uses `log/max_level_off` so the transitive JNI log facade compiles all log levels out.
+- Set both independent Rust release workspaces to `opt-level = 3`, full/fat LTO, one codegen unit, symbol stripping, and `panic = "abort"`. No host-specific CPU tuning is enabled; Linux x86-64 and Android arm64-v8a/x86_64 retain standard portable target baselines.
+- Added AndroidX BiometricPrompt and a per-use strong-biometric Android Keystore key that encrypts the existing Rust password-derived KEK. Only the wrapped KEK is stored under the Android app-private data root; the DEK and decrypted account database remain inside Rust. The portable password vault format is unchanged.
+- Added explicit enable/replace/disable controls for device-bound biometric unlock, master-password fallback, and cleanup when biometric or device security changes invalidate the Keystore key.
+- Hardened Android configuration-change lifecycle handling with a ViewModel-owned native session handle and one serialized worker queue; background locking is re-applied after biometric prompt completion.
+- Added bounded shared-core `otpauth://` parsing for TOTP and HOTP, including strict UTF-8/percent decoding, duplicate parameter rejection, issuer-label consistency checks, supported HMAC/digit validation, period/counter bounds, and zeroizing secret handling.
+- Added provisioning-URI import to both Linux and Android enrollment screens. Imported accounts are validated by the shared Rust parser and encrypted before persistence; Android passes the URI as a bounded zeroizing JNI byte buffer.
+- Added Rust tests for URI defaults, percent-encoded fields, SHA-256/SHA-512, TOTP/HOTP settings, malformed URI rejection, duplicate and conflicting fields, secret length, and encrypted Android import persistence.
 - Read Android dropdown selections on the main thread before dispatching enrollment to the JNI worker, avoiding cross-thread access to View widgets.
 - Replaced Linux Add/Edit free-text OTP configuration fields with dropdowns for TOTP/HOTP mode, HMAC algorithm, code length, and common TOTP-period/HOTP-counter presets. A clearly labeled Custom… choice retains support for non-preset values; added selector-mapping regression tests.
 - Added Android TOTP enrollment dropdowns for HMAC-SHA-1/SHA-256/SHA-512, 6/7/8 digits, and common periods instead of hardcoding SHA-1, six digits, and 30 seconds.

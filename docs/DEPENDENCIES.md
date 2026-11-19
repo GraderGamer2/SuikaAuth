@@ -34,3 +34,9 @@ A dependency may be added only when it provides concrete functionality that cann
 ## Platform-only dependencies
 
 GTK4 0.10.3 is an exact-pinned Linux-only Rust binding and belongs only to the frontend; it is not linked into suika-core. JNI bindings belong in the isolated Android bridge crate, not in suika-core or the Linux application. The gtk-rs 0.10 line documents an MSRV of Rust 1.83 and uses the glib/gdk 0.21 dependency family, which keeps it compatible with this workspace's Rust 1.88 baseline. GTK and its system libraries belong only to the Linux frontend. Kotlin/Android SDK dependencies belong only to the Android frontend. Neither platform UI stack may become a dependency of the shared Rust core.
+
+
+## Android-only dependencies
+
+- `jni` 0.22.4 remains isolated in `android/native/`. Its transitive `log` facade is feature-unified with `max_level_off`; logging macros in that dependency graph are disabled at compile time. No logger or tracing subscriber is initialized.
+- `androidx.biometric:biometric:1.1.0` supplies API 26+ BiometricPrompt and authenticated Cipher operations. It remains Android-only and does not enter the Rust core or Linux build.

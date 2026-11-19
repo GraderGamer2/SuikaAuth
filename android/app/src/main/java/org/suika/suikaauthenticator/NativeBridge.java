@@ -14,8 +14,11 @@ final class NativeBridge {
     static native boolean nativeHasVault(String appPrivateRoot);
     static native long nativeCreateVault(String appPrivateRoot, byte[] password);
     static native long nativeUnlockVault(String appPrivateRoot, byte[] password);
+    static native long nativeUnlockVaultWithDeviceKey(String appPrivateRoot, byte[] wrappingKey);
+    static native byte[] nativeExportDeviceUnlockKey(long sessionHandle);
     static native void nativeLockVault(long sessionHandle);
     static native String[] nativeListAccounts(long sessionHandle);
+    static native void nativeImportOtpAuthUri(long sessionHandle, byte[] encodedUri);
     static native void nativeAddTotp(
         long sessionHandle,
         String issuer,

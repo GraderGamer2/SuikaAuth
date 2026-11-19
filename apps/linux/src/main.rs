@@ -20,6 +20,7 @@ use suika_core::accounts::{Account, AccountDatabase, AccountMode};
 use suika_core::base32::decode_base32;
 use suika_core::crypto::KdfParams;
 use suika_core::otp::OtpAlgorithm;
+use suika_core::otpauth::{OtpAuthError, parse_otpauth_uri};
 use suika_core::storage::{StorageError, VaultStore};
 use suika_core::vault::{Vault, VaultError, VaultSession};
 use zeroize::Zeroizing;
@@ -54,6 +55,7 @@ enum AuthMode {
 }
 
 fn main() -> glib::ExitCode {
+    std::panic::set_hook(Box::new(|_| {}));
     let application = Application::builder().application_id(APP_ID).build();
     application.connect_activate(build_application);
     application.run()
@@ -646,11 +648,7 @@ fn bind_parameter_fields(
     let update_period = update.clone();
     period.connect_selected_notify(move |_| update_period());
     let update_counter = update.clone();
-    counter.connect_selected_notify(move |_| update_counter());
-    update();
-}
-
-fn show_add_account_page(
+    counter.connect_sfn show_add_account_page(
     stack: &Stack,
     window: &ApplicationWindow,
     directory: PathBuf,
@@ -667,11 +665,21 @@ fn show_add_account_page(
     title.set_xalign(0.0);
 
     let description = Label::new(Some(
-        "Enter the account details and Base32 secret. Choose TOTP for time-based codes or HOTP for counter-based codes. The secret is encrypted before it is saved.",
+        "Paste an otpauth:// provisioning URI or enter the details manually. Imported parameters are validated and the secret is encrypted before saving.",
     ));
     description.set_wrap(true);
     description.set_xalign(0.0);
     description.add_css_class("dim-label");
+
+    let provisioning_uri = labeled_entry(
+        &page,
+        "Provisioning URI (optional)",
+        "otpauth://totp/Issuer:account?secret=…",
+    );
+    provisioning_uri.set_visibility(false);
+    provisioning_uri.set_input_purpose(gtk::InputPurpose::Password);
+    provisioning_uri.set_widget_name("suika-secret-entry");
+    provisioning_uri.set_max_length(4096);
 
     let issuer = labeled_entry(&page, "Issuer (optional)", "Example: GitHub");
     issuer.set_max_length(256);
@@ -746,8 +754,10 @@ fn show_add_account_page(
     let directory_for_back = directory.clone();
     let unlocked_for_back = unlocked.clone();
     let secret_for_back = secret.clone();
+    let uri_for_back = provisioning_uri.clone();
     back.connect_clicked(move |_| {
         secret_for_back.set_text("");
+        uri_for_back.set_text("");
         if let (Some(stack), Some(window)) = (stack_weak.upgrade(), window_weak.upgrade()) {
             show_accounts_page(
                 &stack,
@@ -765,6 +775,7 @@ fn show_add_account_page(
     let issuer_for_save = issuer.clone();
     let label_for_save = label.clone();
     let secret_for_save = secret.clone();
+    let uri_for_save = provisioning_uri.clone();
     let algorithm_for_save = algorithm.clone();
     let digits_for_save = digits.clone();
     let mode_for_save = mode.clone();
@@ -775,87 +786,97 @@ fn show_add_account_page(
     let save_for_save = save.clone();
 
     save.connect_clicked(move |_| {
-        let issuer_value = issuer_for_save.text().trim().to_owned();
-        let label_value = label_for_save.text().trim().to_owned();
-        let secret_value = Zeroizing::new(secret_for_save.text().to_string());
-        secret_for_save.set_text("");
+        let uri_value = Zeroizing::new(uri_for_save.text().to_string());
+        uri_for_save.set_text("");
 
-        let algorithm_value = match algorithm_for_save.selected() {
-            0 => OtpAlgorithm::Sha1,
-            1 => OtpAlgorithm::Sha256,
-            2 => OtpAlgorithm::Sha512,
-            _ => {
-                status_for_save.set_text("Choose SHA1, SHA256, or SHA512.");
-                return;
-            }
-        };
-        let digits_value = match digits_for_save.selected() {
-            value @ 0..=2 => (value + 6) as u8,
-            _ => {
-                status_for_save.set_text("Choose a code length of 6, 7, or 8 digits.");
-                return;
-            }
-        };
-        let mode_value = match mode_for_save.selected() {
-            0 => "TOTP",
-            1 => "HOTP",
-            _ => {
-                status_for_save.set_text("Choose TOTP or HOTP as the OTP mode.");
-                return;
-            }
-        };
-        let parameter_value = match selected_parameter(
-            mode_for_save.selected(),
-            period_for_save.selected(),
-            counter_for_save.selected(),
-            custom_parameter_for_save.text().as_str(),
-        ) {
-            Ok(value) => value,
-            Err(message) => {
-                status_for_save.set_text(message);
-                return;
-            }
-        };
-        if mode_value == "TOTP" && !(1..=86_400).contains(&parameter_value) {
-            status_for_save.set_text("TOTP period must be between 1 and 86400 seconds.");
-            return;
-        }
-        if label_value.is_empty() {
-            status_for_save.set_text("Enter an account name.");
-            return;
-        }
-
-        let secret_bytes = match decode_base32(secret_value.as_str()) {
-            Ok(value) if value.len() >= 16 => value,
-            Ok(_) => {
-                status_for_save.set_text("Use a secret containing at least 16 decoded bytes.");
-                return;
-            }
-            Err(message) => {
-                status_for_save.set_text(&message.to_string());
-                return;
-            }
-        };
-
-        let account_result = if mode_value == "TOTP" {
-            Account::new_totp(
-                issuer_value,
-                label_value,
-                secret_bytes,
-                algorithm_value,
-                digits_value,
-                parameter_value,
-            )
+        let account_result = if !uri_value.trim().is_empty() {
+            secret_for_save.set_text("");
+            parse_otpauth_uri(uri_value.trim())
         } else {
-            Account::new_hotp(
-                issuer_value,
-                label_value,
-                secret_bytes,
-                algorithm_value,
-                digits_value,
-                parameter_value,
-            )
+            let issuer_value = issuer_for_save.text().trim().to_owned();
+            let label_value = label_for_save.text().trim().to_owned();
+            let secret_value = Zeroizing::new(secret_for_save.text().to_string());
+            secret_for_save.set_text("");
+
+            let algorithm_value = match algorithm_for_save.selected() {
+                0 => OtpAlgorithm::Sha1,
+                1 => OtpAlgorithm::Sha256,
+                2 => OtpAlgorithm::Sha512,
+                _ => {
+                    status_for_save.set_text("Choose SHA1, SHA256, or SHA512.");
+                    return;
+                }
+            };
+            let digits_value = match digits_for_save.selected() {
+                value @ 0..=2 => (value + 6) as u8,
+                _ => {
+                    status_for_save.set_text("Choose a code length of 6, 7, or 8 digits.");
+                    return;
+                }
+            };
+            let mode_value = match mode_for_save.selected() {
+                0 => "TOTP",
+                1 => "HOTP",
+                _ => {
+                    status_for_save.set_text("Choose TOTP or HOTP as the OTP mode.");
+                    return;
+                }
+            };
+            let parameter_value = match selected_parameter(
+                mode_for_save.selected(),
+                period_for_save.selected(),
+                counter_for_save.selected(),
+                custom_parameter_for_save.text().as_str(),
+            ) {
+                Ok(value) => value,
+                Err(message) => {
+                    status_for_save.set_text(message);
+                    return;
+                }
+            };
+            if mode_value == "TOTP" && !(1..=86_400).contains(&parameter_value) {
+                status_for_save.set_text("TOTP period must be between 1 and 86400 seconds.");
+                return;
+            }
+            if label_value.is_empty() {
+                status_for_save.set_text("Enter an account name.");
+                return;
+            }
+
+            let secret_bytes = match decode_base32(secret_value.as_str()) {
+                Ok(value) if value.len() >= 16 => value,
+                Ok(_) => {
+                    status_for_save.set_text("Use a secret containing at least 16 decoded bytes.");
+                    return;
+                }
+                Err(message) => {
+                    status_for_save.set_text(&message.to_string());
+                    return;
+                }
+            };
+
+            let created = if mode_value == "TOTP" {
+                Account::new_totp(
+                    issuer_value,
+                    label_value,
+                    secret_bytes,
+                    algorithm_value,
+                    digits_value,
+                    parameter_value,
+                )
+            } else {
+                Account::new_hotp(
+                    issuer_value,
+                    label_value,
+                    secret_bytes,
+                    algorithm_value,
+                    digits_value,
+                    parameter_value,
+                )
+            };
+            created.map_err(OtpAuthError::from)
         };
+
         let account = match account_result {
             Ok(account) => account,
             Err(error) => {
@@ -898,6 +919,11 @@ fn show_add_account_page(
                 ));
             }
         }
+    });
+
+    replace_page(stack, "add-account", &page);
+}
+}
     });
 
     replace_page(stack, "add-account", &page);
