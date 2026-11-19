@@ -138,10 +138,7 @@ impl Backup {
     /// Wrong passwords and AEAD authentication failures intentionally produce
     /// the same `UnlockFailed` error. The decoded account database is checked
     /// before any plaintext bytes are returned.
-    pub fn restore(
-        serialized: &[u8],
-        password: &[u8],
-    ) -> Result<Zeroizing<Vec<u8>>, BackupError> {
+    pub fn restore(serialized: &[u8], password: &[u8]) -> Result<Zeroizing<Vec<u8>>, BackupError> {
         let locked = LockedBackup::parse(serialized)?;
         let wrapping_key = derive_wrapping_key(password, &locked.salt, locked.params)?;
         let wrapped_key_aad = build_wrap_aad(&locked.prefix);
@@ -156,8 +153,8 @@ impl Backup {
         let data_key = SecretKey::from_bytes(*data_key_bytes);
         let payload_aad =
             build_payload_aad(&locked.prefix, &locked.wrapped_key, locked.payload_len);
-        let plaintext =
-            decrypt(&data_key, &locked.payload, &payload_aad).map_err(|_| BackupError::UnlockFailed)?;
+        let plaintext = decrypt(&data_key, &locked.payload, &payload_aad)
+            .map_err(|_| BackupError::UnlockFailed)?;
         validate_plaintext(&plaintext)?;
         Ok(plaintext)
     }
@@ -331,7 +328,9 @@ fn take<const N: usize>(serialized: &[u8], offset: &mut usize) -> Result<[u8; N]
     let slice = serialized
         .get(*offset..end)
         .ok_or(BackupError::InvalidContainer)?;
-    let result = slice.try_into().map_err(|_| BackupError::InvalidContainer)?;
+    let result = slice
+        .try_into()
+        .map_err(|_| BackupError::InvalidContainer)?;
     *offset = end;
     Ok(result)
 }
@@ -359,7 +358,9 @@ mod tests {
             60,
         )
         .expect("test TOTP account should be valid");
-        account.set_group(Some("Personal".to_owned())).expect("group is valid");
+        account
+            .set_group(Some("Personal".to_owned()))
+            .expect("group is valid");
         account.set_favorite(true);
 
         let hotp = Account::new_hotp(
@@ -373,9 +374,13 @@ mod tests {
         .expect("test HOTP account should be valid");
 
         let mut database = AccountDatabase::new();
-        database.insert(account).expect("TOTP insert should succeed");
+        database
+            .insert(account)
+            .expect("TOTP insert should succeed");
         database.insert(hotp).expect("HOTP insert should succeed");
-        database.encode().expect("test account database should encode")
+        database
+            .encode()
+            .expect("test account database should encode")
     }
 
     #[test]
@@ -383,8 +388,8 @@ mod tests {
         let database = sample_database();
         let backup = Backup::create(&database, TEST_PASSWORD, test_params())
             .expect("backup creation should succeed");
-        let restored = Backup::restore(&backup, TEST_PASSWORD)
-            .expect("backup restoration should succeed");
+        let restored =
+            Backup::restore(&backup, TEST_PASSWORD).expect("backup restoration should succeed");
         let accounts =
             AccountDatabase::decode(&restored).expect("restored account database should decode");
 
@@ -479,6 +484,10 @@ mod tests {
         let database = sample_database();
         let backup = Backup::create(&database, TEST_PASSWORD, test_params())
             .expect("backup creation should succeed");
-        assert!(!backup.windows(database.len()).any(|part| part == &database[..]));
+        assert!(
+            !backup
+                .windows(database.len())
+                .any(|part| part == &database[..])
+        );
     }
 }
