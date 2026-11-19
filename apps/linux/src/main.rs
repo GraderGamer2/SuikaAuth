@@ -3099,6 +3099,33 @@ mod tests {
     }
 
     #[test]
+    fn linux_file_reader_restores_the_shared_portable_backup_fixture() {
+        let fixture_path = Path::new(env!("CARGO_MANIFEST_DIR")).join(
+            "../../crates/suika-core/tests/fixtures/portable_backup_v1.suikabak",
+        );
+        let encrypted = read_backup_file(&fixture_path)
+            .expect("Linux file reader should accept the shared backup fixture");
+        let plaintext = Backup::restore(&encrypted, b"portable-backup-fixture-password")
+            .expect("Linux should restore the shared portable backup fixture");
+        let accounts = AccountDatabase::decode(&plaintext)
+            .expect("shared fixture account database should decode");
+
+        assert_eq!(accounts.len(), 2);
+        assert_eq!(accounts.accounts()[0].issuer(), "CrossPlatform");
+        assert_eq!(accounts.accounts()[0].label(), "fixture-totp");
+        assert_eq!(
+            accounts.accounts()[0].mode(),
+            AccountMode::Totp { period_seconds: 60 }
+        );
+        assert_eq!(accounts.accounts()[1].issuer(), "CrossPlatform");
+        assert_eq!(accounts.accounts()[1].label(), "fixture-hotp");
+        assert_eq!(
+            accounts.accounts()[1].mode(),
+            AccountMode::Hotp { counter: 9 }
+        );
+    }
+
+    #[test]
     fn backup_export_cannot_replace_the_live_vault_file() {
         static NEXT_DIRECTORY: AtomicU64 = AtomicU64::new(0);
         let directory = loop {

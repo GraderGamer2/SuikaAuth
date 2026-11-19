@@ -74,7 +74,7 @@ Status: **Milestone 7 — Encrypted backup and restore (Linux/Android implementa
 - [x] Add offline Android camera QR scanning using CameraX and a bundled ML Kit QR model; request camera permission only when scanning is started. CI builds the Android APK with the camera model dependency.
 - [x] Add local Linux QR image import using GdkPixbuf and the pure-Rust quircs decoder, with image/pixel bounds and single-code validation; the Linux frontend builds in CI.
 - [x] Add offline migration from plaintext and password-encrypted Aegis JSON exports on Linux and Android; preserve standard TOTP/HOTP settings, favorites, and one group mapping, and report unsupported Aegis token types. Tests use Aegis's published plaintext and encrypted examples.
-- [ ] Add migration from other documented authenticator formats (plaintext Ente Auth / generic newline-delimited `otpauth://` text import is implemented; CI validation pending. Ente's separately encrypted JSON export is not claimed as supported).
+- [x] Add migration from another documented authenticator format: Ente Auth plaintext newline-delimited `otpauth://` text exports and compatible URI-list files are supported on Linux and Android. Ente's separately encrypted JSON export is not claimed as supported.
 - [x] Validate issuer, account label, Base32 secret encoding and length, algorithm, digits, TOTP period, and HOTP counter during URI import.
 
 ## 7. Encrypted backup and restore
@@ -82,7 +82,7 @@ Status: **Milestone 7 — Encrypted backup and restore (Linux/Android implementa
 - [x] Define a portable encrypted backup format; see docs/BACKUP_FORMAT.md.
 - [x] Derive backup encryption keys from a user-supplied backup password using the bounded Argon2id profile and a separate random DEK.
 - [x] Add Linux and Android export/import UI, transactional restore, and clear error handling; Linux uses mode-0600 atomic file export and Android uses the system document picker. Both workflows are CI-validated.
-- [ ] Test cross-platform restore between Linux and Android.
+- [x] Test cross-platform restore between Linux and Android using the same independently generated encrypted fixture in shared-core, Linux file-reader, and Android JNI restore tests; actual document-picker transfer on physical devices remains final device validation.
 - [x] Ensure backups never contain plaintext OTP secrets; core tests verify encrypted output and authenticated round trips.
 
 ## 8. Security hardening and release

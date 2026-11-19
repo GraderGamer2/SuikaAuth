@@ -1078,6 +1078,74 @@ mod tests {
     }
 
     #[test]
+    fn android_native_restore_accepts_the_shared_portable_fixture() {
+        let temporary = TestDirectory::new();
+        let store =
+            VaultStore::open(temporary.0.join(APP_DIRECTORY)).expect("vault store should open");
+        let accounts = AccountDatabase::new();
+        let plaintext = accounts.encode().expect("account database should encode");
+        let params = KdfParams::new(64 * 1024, 1, 1).expect("test KDF profile");
+        let (serialized, vault) =
+            Vault::create_session(&plaintext, b"Android target vault password", params)
+                .expect("target encrypted vault and session should be created");
+        store
+            .save_new(&serialized)
+            .expect("target vault should be saved");
+        let handle = insert_session(NativeSession {
+            store,
+            vault,
+            accounts,
+        })
+        .expect("native session handle should be allocated");
+
+        let fixture = include_bytes!("../../../crates/suika-core/tests/fixtures/portable_backup_v1.suikabak");
+        assert_eq!(
+            restore_backup(
+                handle as jlong,
+                fixture,
+                b"portable-backup-fixture-password",
+            )
+            .expect("Android native bridge should restore the shared fixture"),
+            2
+        );
+
+        let mut registry = sessions()
+            .lock()
+            .expect("session registry should remain available");
+        let session = registry
+            .remove(&handle)
+            .expect("native target session should remain active");
+        assert_eq!(session.accounts.len(), 2);
+        let persisted = Vault::unlock(
+            &session.store.load().expect("restored Android vault should load"),
+            b"Android target vault password",
+        )
+        .expect("target vault password should still unlock after restore");
+        let restored = AccountDatabase::decode(persisted.plaintext())
+            .expect("restored Android account database should decode");
+
+        assert_eq!(restored.len(), 2);
+        assert_eq!(restored.accounts()[0].issuer(), "CrossPlatform");
+        assert_eq!(restored.accounts()[0].label(), "fixture-totp");
+        assert_eq!(restored.accounts()[0].algorithm(), OtpAlgorithm::Sha256);
+        assert_eq!(restored.accounts()[0].digits(), 8);
+        assert_eq!(
+            restored.accounts()[0].mode(),
+            AccountMode::Totp { period_seconds: 60 }
+        );
+        assert_eq!(restored.accounts()[0].group(), Some("Portable"));
+        assert!(restored.accounts()[0].is_favorite());
+        assert_eq!(restored.accounts()[1].issuer(), "CrossPlatform");
+        assert_eq!(restored.accounts()[1].label(), "fixture-hotp");
+        assert_eq!(restored.accounts()[1].algorithm(), OtpAlgorithm::Sha512);
+        assert_eq!(restored.accounts()[1].digits(), 7);
+        assert_eq!(
+            restored.accounts()[1].mode(),
+            AccountMode::Hotp { counter: 9 }
+        );
+    }
+
+    #[test]
     fn provisioning_uri_import_persists_totp_and_hotp_accounts() {
         let temporary = TestDirectory::new();
         let store =

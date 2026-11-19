@@ -480,6 +480,35 @@ mod tests {
     }
 
     #[test]
+    fn restores_the_shared_cross_platform_v1_fixture() {
+        let fixture = include_bytes!("../tests/fixtures/portable_backup_v1.suikabak");
+        let plaintext = Backup::restore(
+            fixture,
+            b"portable-backup-fixture-password",
+        )
+        .expect("shared portable backup fixture should restore");
+        let accounts = AccountDatabase::decode(&plaintext)
+            .expect("shared fixture account database should decode");
+
+        assert_eq!(accounts.len(), 2);
+        let totp = &accounts.accounts()[0];
+        assert_eq!(totp.issuer(), "CrossPlatform");
+        assert_eq!(totp.label(), "fixture-totp");
+        assert_eq!(totp.algorithm(), OtpAlgorithm::Sha256);
+        assert_eq!(totp.digits(), 8);
+        assert_eq!(totp.mode(), AccountMode::Totp { period_seconds: 60 });
+        assert_eq!(totp.group(), Some("Portable"));
+        assert!(totp.is_favorite());
+
+        let hotp = &accounts.accounts()[1];
+        assert_eq!(hotp.issuer(), "CrossPlatform");
+        assert_eq!(hotp.label(), "fixture-hotp");
+        assert_eq!(hotp.algorithm(), OtpAlgorithm::Sha512);
+        assert_eq!(hotp.digits(), 7);
+        assert_eq!(hotp.mode(), AccountMode::Hotp { counter: 9 });
+    }
+
+    #[test]
     fn encrypted_backup_does_not_contain_the_plaintext_database() {
         let database = sample_database();
         let backup = Backup::create(&database, TEST_PASSWORD, test_params())
