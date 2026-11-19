@@ -24,6 +24,12 @@ final class NativeBridge {
         byte[] encodedExport,
         byte[] password
     );
+    static native byte[] nativeExportBackup(long sessionHandle, byte[] password);
+    static native int nativeRestoreBackup(
+        long sessionHandle,
+        byte[] encodedBackup,
+        byte[] password
+    );
     static native void nativeAddTotp(
         long sessionHandle,
         String issuer,

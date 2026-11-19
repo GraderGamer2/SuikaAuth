@@ -56,6 +56,12 @@ class MainActivity : FragmentActivity() {
     private val handler = Handler(Looper.getMainLooper())
     private val inactivityTimeoutMs = 5 * 60 * 1000L
     private val backgroundLock = Runnable { lockSession(showAuthentication = true) }
+
+    companion object {
+        private const val MAX_AEGIS_EXPORT_BYTES = 16 * 1024 * 1024
+        private const val MAX_BACKUP_PASSWORD_BYTES = 1024
+        private const val MAX_BACKUP_FILE_BYTES = 158 + 16 * 1024 * 1024 + 16
+    }
     private var backgroundLockTimeoutMs = 0L
     private var activeHandle: Long? = null
     private var vaultExists: Boolean? = null
@@ -68,7 +74,10 @@ class MainActivity : FragmentActivity() {
     private var activeQrScannerCleanup: (() -> Unit)? = null
     private var sensitiveEnrollmentFields: List<EditText> = emptyList()
     private var pendingAegisUri: Uri? = null
+    private var pendingBackupExportUri: Uri? = null
+    private var pendingBackupRestoreUri: Uri? = null
     private var activeAegisPasswordDialog: AlertDialog? = null
+    private var activeBackupPasswordDialog: AlertDialog? = null
     private var isRefreshing = false
     private val pendingHotp = mutableSetOf<String>()
 
@@ -100,6 +109,30 @@ class MainActivity : FragmentActivity() {
             promptAegisPassword()
         } else if (::status.isInitialized) {
             status.text = "Aegis export selected. Unlock your vault to continue the import."
+        }
+    }
+
+    private val backupExportDocumentPicker = registerForActivityResult(
+        ActivityResultContracts.CreateDocument("application/octet-stream")
+    ) { uri ->
+        pendingBackupExportUri = uri
+        if (uri == null) return@registerForActivityResult
+        if (activeHandle != null) {
+            promptBackupExportPassword()
+        } else if (::status.isInitialized) {
+            status.text = "Backup destination selected. Unlock your vault to continue."
+        }
+    }
+
+    private val backupRestoreDocumentPicker = registerForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        pendingBackupRestoreUri = uri
+        if (uri == null) return@registerForActivityResult
+        if (activeHandle != null) {
+            promptBackupRestorePassword()
+        } else if (::status.isInitialized) {
+            status.text = "Backup selected. Unlock your vault to continue."
         }
     }
 
@@ -175,6 +208,7 @@ class MainActivity : FragmentActivity() {
     override fun onStop() {
         activityStarted = false
         activeAegisPasswordDialog?.dismiss()
+        activeBackupPasswordDialog?.dismiss()
         activeQrScannerCleanup?.invoke()
         handler.removeCallbacks(accountRefresh)
         handler.removeCallbacks(inactivityLock)
@@ -191,6 +225,7 @@ class MainActivity : FragmentActivity() {
 
     override fun onDestroy() {
         activeAegisPasswordDialog?.dismiss()
+        activeBackupPasswordDialog?.dismiss()
         activeQrScannerCleanup?.invoke()
         clearSensitiveEnrollmentFields()
         handler.removeCallbacksAndMessages(null)
@@ -320,6 +355,30 @@ class MainActivity : FragmentActivity() {
                 )
             }
         }
+        addButton("Create encrypted backup").setOnClickListener {
+            if (activeHandle == null) {
+                status.text = "Unlock your vault before creating a backup."
+            } else if (pendingBackupExportUri != null) {
+                promptBackupExportPassword()
+            } else {
+                backupExportDocumentPicker.launch("SuikaAuthenticator.suikabak")
+            }
+        }
+        addButton("Restore encrypted backup").setOnClickListener {
+            if (activeHandle == null) {
+                status.text = "Unlock your vault before restoring a backup."
+            } else if (pendingBackupRestoreUri != null) {
+                promptBackupRestorePassword()
+            } else {
+                backupRestoreDocumentPicker.launch(
+                    arrayOf("application/octet-stream", "application/x-suikabak", "*/*")
+                )
+            }
+        }
+        addText(
+            "Backups are encrypted with a separate password. Restoring replaces all current accounts; it does not merge them.",
+            12f
+        )
 
         addSectionTitle("Security")
         addButton("Enable / replace biometric unlock").setOnClickListener {
@@ -529,6 +588,225 @@ class MainActivity : FragmentActivity() {
         passwordField.requestFocus()
     }
 
+    private fun promptBackupExportPassword() {
+        val uri = pendingBackupExportUri ?: return
+        if (activeHandle == null || isFinishing || isDestroyed) return
+
+        val passwordField = EditText(this).apply {
+            hint = "New backup password"
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or
+                android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+            isSingleLine = true
+            isSaveEnabled = false
+            importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_NO
+        }
+        val confirmationField = EditText(this).apply {
+            hint = "Confirm backup password"
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or
+                android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+            isSingleLine = true
+            isSaveEnabled = false
+            importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_NO
+        }
+        val form = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(8), dp(20), 0)
+            addView(passwordField, matchWidthWrapHeight())
+            addView(confirmationField, matchWidthWrapHeight())
+        }
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("Encrypt backup")
+            .setMessage("Choose a separate backup password. It is not your vault password; you will need it on any device to restore this file.")
+            .setView(form)
+            .setNegativeButton("Cancel") { _, _ -> pendingBackupExportUri = null }
+            .setPositiveButton("Create backup", null)
+            .create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val passwordText = passwordField.text.toString()
+                val confirmationText = confirmationField.text.toString()
+                if (passwordText.isEmpty()) {
+                    status.text = "Choose a non-empty backup password."
+                    return@setOnClickListener
+                }
+                if (passwordText != confirmationText) {
+                    status.text = "The backup password confirmation does not match."
+                    return@setOnClickListener
+                }
+                val password = passwordText.toByteArray(StandardCharsets.UTF_8)
+                if (password.size > MAX_BACKUP_PASSWORD_BYTES) {
+                    password.fill(0)
+                    status.text = "The backup password exceeds the supported 1024-byte limit."
+                    return@setOnClickListener
+                }
+                passwordField.text?.clear()
+                confirmationField.text?.clear()
+                dialog.dismiss()
+                pendingBackupExportUri = null
+                exportEncryptedBackup(uri, password)
+            }
+        }
+        dialog.setOnCancelListener { pendingBackupExportUri = null }
+        dialog.setOnDismissListener {
+            passwordField.text?.clear()
+            confirmationField.text?.clear()
+            pendingBackupExportUri = null
+            if (activeBackupPasswordDialog === dialog) {
+                activeBackupPasswordDialog = null
+            }
+        }
+        activeBackupPasswordDialog = dialog
+        dialog.show()
+        passwordField.requestFocus()
+    }
+
+    private fun promptBackupRestorePassword(message: String? = null) {
+        val uri = pendingBackupRestoreUri ?: return
+        if (activeHandle == null || isFinishing || isDestroyed) return
+
+        val passwordField = EditText(this).apply {
+            hint = "Backup password"
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or
+                android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+            isSingleLine = true
+            isSaveEnabled = false
+            importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_NO
+        }
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("Restore encrypted backup")
+            .setMessage(
+                message ?: "This will replace every authenticator account currently in your vault. It does not merge accounts. Enter the separate password used when this backup was created."
+            )
+            .setView(passwordField)
+            .setNegativeButton("Cancel") { _, _ -> pendingBackupRestoreUri = null }
+            .setPositiveButton("Replace current accounts", null)
+            .create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val password = passwordField.text.toString().toByteArray(StandardCharsets.UTF_8)
+                passwordField.text?.clear()
+                if (password.isEmpty() || password.size > MAX_BACKUP_PASSWORD_BYTES) {
+                    password.fill(0)
+                    status.text = "Enter a valid backup password (maximum 1024 UTF-8 bytes)."
+                    return@setOnClickListener
+                }
+                dialog.dismiss()
+                pendingBackupRestoreUri = null
+                restoreEncryptedBackup(uri, password)
+            }
+        }
+        dialog.setOnCancelListener { pendingBackupRestoreUri = null }
+        dialog.setOnDismissListener {
+            passwordField.text?.clear()
+            pendingBackupRestoreUri = null
+            if (activeBackupPasswordDialog === dialog) {
+                activeBackupPasswordDialog = null
+            }
+        }
+        activeBackupPasswordDialog = dialog
+        dialog.show()
+        passwordField.requestFocus()
+    }
+
+    private fun exportEncryptedBackup(uri: Uri, password: ByteArray) {
+        val handle = activeHandle
+        if (handle == null) {
+            password.fill(0)
+            status.text = "Unlock your vault before creating a backup."
+            return
+        }
+        status.text = "Encrypting backup…"
+        worker.execute {
+            var backup: ByteArray? = null
+            val result = runCatching {
+                backup = NativeBridge.nativeExportBackup(handle, password)
+                val output = contentResolver.openOutputStream(uri, "wt")
+                    ?: throw IllegalStateException("The selected backup destination could not be opened.")
+                output.use { stream ->
+                    stream.write(backup ?: throw IllegalStateException("Backup encryption returned no data."))
+                    stream.flush()
+                }
+            }
+            backup?.fill(0)
+            password.fill(0)
+            runOnUiThread {
+                if (activeHandle != handle || isFinishing || isDestroyed) return@runOnUiThread
+                result.onSuccess {
+                    status.text = "Encrypted backup created. Keep its separate password safe; it cannot be recovered."
+                }.onFailure { error ->
+                    pendingBackupExportUri = uri
+                    showError(error)
+                }
+            }
+        }
+    }
+
+    private fun restoreEncryptedBackup(uri: Uri, password: ByteArray) {
+        val handle = activeHandle
+        if (handle == null) {
+            password.fill(0)
+            status.text = "Unlock your vault before restoring a backup."
+            return
+        }
+        status.text = "Validating and restoring encrypted backup…"
+        worker.execute {
+            var backup: ByteArray? = null
+            val result = runCatching {
+                backup = readEncryptedBackup(uri)
+                NativeBridge.nativeRestoreBackup(
+                    handle,
+                    backup ?: throw IllegalStateException("The encrypted backup could not be read."),
+                    password
+                )
+            }
+            backup?.fill(0)
+            password.fill(0)
+            runOnUiThread {
+                if (activeHandle != handle || isFinishing || isDestroyed) return@runOnUiThread
+                result.onSuccess { restoredCount ->
+                    status.text = "Restored $restoredCount account(s). The previous account list was replaced."
+                    refreshAccountsNow()
+                }.onFailure { error ->
+                    val message = error.message ?: "The encrypted backup could not be restored."
+                    if (message.contains("backup password is incorrect", ignoreCase = true)) {
+                        pendingBackupRestoreUri = uri
+                        promptBackupRestorePassword(message)
+                    } else {
+                        showError(error)
+                    }
+                }
+            }
+        }
+    }
+
+    private fun readEncryptedBackup(uri: Uri): ByteArray {
+        val maximumBytes = MAX_BACKUP_FILE_BYTES
+        val input = contentResolver.openInputStream(uri)
+            ?: throw IllegalStateException("The selected backup could not be opened.")
+        val output = ZeroizingByteArrayOutputStream(
+            maximumBytes,
+            "The encrypted backup exceeds its supported size limit."
+        )
+        val buffer = ByteArray(8192)
+        try {
+            input.use { stream ->
+                while (true) {
+                    val count = stream.read(buffer)
+                    if (count < 0) break
+                    if (count == 0) continue
+                    if (count > maximumBytes || output.size() > maximumBytes - count) {
+                        throw IllegalArgumentException("The encrypted backup exceeds its supported size limit.")
+                    }
+                    output.write(buffer, 0, count)
+                }
+            }
+            return output.toByteArray()
+        } finally {
+            buffer.fill(0)
+            output.clear()
+        }
+    }
+
     private fun importAegisDocument(uri: Uri, password: ByteArray) {
         val handle = activeHandle
         if (handle == null) {
@@ -578,10 +856,10 @@ class MainActivity : FragmentActivity() {
     }
 
     private fun readAegisExport(uri: Uri): ByteArray {
-        val maximumBytes = 16 * 1024 * 1024
+        val maximumBytes = MAX_AEGIS_EXPORT_BYTES
         val input = contentResolver.openInputStream(uri)
             ?: throw IllegalStateException("The selected Aegis export could not be opened.")
-        val output = ZeroizingByteArrayOutputStream()
+        val output = ZeroizingByteArrayOutputStream(MAX_AEGIS_EXPORT_BYTES, "The Aegis export exceeds the 16 MiB import limit.")
         val buffer = ByteArray(8192)
         try {
             input.use { stream ->
@@ -602,11 +880,13 @@ class MainActivity : FragmentActivity() {
         }
     }
 
-    private class ZeroizingByteArrayOutputStream : ByteArrayOutputStream(8192) {
+    private class ZeroizingByteArrayOutputStream(
+        private val maximumBytes: Int,
+        private val limitMessage: String
+    ) : ByteArrayOutputStream(8192) {
         private fun ensureBoundedCapacity(minimumCapacity: Int) {
-            val maximumBytes = 16 * 1024 * 1024
             if (minimumCapacity < 0 || minimumCapacity > maximumBytes) {
-                throw IllegalArgumentException("The Aegis export exceeds the 16 MiB import limit.")
+                throw IllegalArgumentException(limitMessage)
             }
             if (minimumCapacity <= buf.size) return
 
@@ -1301,6 +1581,9 @@ class MainActivity : FragmentActivity() {
         cancelBiometricPrompt()
         handler.removeCallbacks(accountRefresh)
         handler.removeCallbacks(inactivityLock)
+        pendingBackupExportUri = null
+        pendingBackupRestoreUri = null
+        activeBackupPasswordDialog?.dismiss()
         val handle = activeHandle
         activeHandle = null
         appState.nativeSessionHandle = null

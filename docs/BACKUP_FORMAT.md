@@ -58,3 +58,12 @@ The nonce for each ciphertext is also supplied as the nonce input to XChaCha20-P
 - Never write decrypted account data to a temporary file. Export files contain ciphertext only.
 
 A backup is a portable transfer/recovery file, not an automatically synchronized copy. The user must retain the backup password separately and protect the backup file from unauthorized access. If the backup password is lost, the backup cannot be decrypted.
+
+
+## Platform workflows
+
+On Linux, the GTK frontend asks for the backup password twice and performs Argon2id and encryption on a worker thread. The selected destination is written through a mode-0600 temporary file in the same directory, synced, and atomically renamed into place. Restore reads a bounded regular file on a worker thread, checks its public container structure before KDF work, and commits the replacement account database through the encrypted vault save path. If validation or persistence fails, the in-memory session is rolled back.
+
+On Android, the frontend uses the system document picker for export and restore. The backup password is masked, is not saved in view state or autofill, and is cleared after the synchronous JNI operation. File contents and passwords are transferred to the shared Rust core as bounded byte arrays; Kotlin never receives decrypted account data. Restore explicitly warns that it replaces the existing account set and returns the restored account count only after the encrypted vault has been saved.
+
+The two frontends share the same format and Rust restore implementation. A real file exported on one platform should be restorable on the other; that device-to-device round trip remains a release validation task.

@@ -2,7 +2,7 @@
 
 This is the authoritative project roadmap. Update its checkboxes and the changelog as work is completed. Development follows this order unless a security or correctness issue requires reordering.
 
-Status: **Milestone 6 — Enrollment and migration (QR and Aegis paths CI-validated; backup core in progress)**
+Status: **Milestone 7 — Encrypted backup and restore (Linux/Android UI implemented; CI validation pending)**
 
 ## 1. Repository and architecture foundation
 
@@ -81,7 +81,7 @@ Status: **Milestone 6 — Enrollment and migration (QR and Aegis paths CI-valida
 
 - [x] Define a portable encrypted backup format; see docs/BACKUP_FORMAT.md.
 - [x] Derive backup encryption keys from a user-supplied backup password using the bounded Argon2id profile and a separate random DEK.
-- [ ] Add Linux and Android export/import UI, transactional restore, and clear error handling.
+- [ ] Add Linux and Android export/import UI, transactional restore, and clear error handling (implemented; CI validation pending).
 - [ ] Test cross-platform restore between Linux and Android.
 - [x] Ensure backups never contain plaintext OTP secrets; core tests verify encrypted output and authenticated round trips.
 

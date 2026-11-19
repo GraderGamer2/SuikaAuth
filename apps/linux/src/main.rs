@@ -5,10 +5,12 @@
 
 use std::cell::{Cell, RefCell};
 use std::fs;
-use std::io::Read;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, TryRecvError};
+use std::os::unix::fs::OpenOptionsExt;
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -22,6 +24,7 @@ use gtk::{
 };
 use suika_core::accounts::{Account, AccountDatabase, AccountMode};
 use suika_core::aegis::{AegisImportResult, import_aegis_export};
+use suika_core::backup::{Backup, MAX_BACKUP_FILE_BYTES};
 use suika_core::base32::decode_base32;
 use suika_core::crypto::KdfParams;
 use suika_core::otp::OtpAlgorithm;
@@ -1330,6 +1333,500 @@ fn persist_aegis_import(
     Ok((imported_count, skipped))
 }
 
+fn show_backup_export_page(
+    stack: &Stack,
+    window: &ApplicationWindow,
+    directory: PathBuf,
+    unlocked: Rc<RefCell<Option<AuthenticatedVault>>>,
+    path: PathBuf,
+) {
+    let page = GtkBox::new(Orientation::Vertical, 14);
+    page.set_margin_top(28);
+    page.set_margin_bottom(28);
+    page.set_margin_start(28);
+    page.set_margin_end(28);
+
+    let title = Label::new(Some("Create encrypted backup"));
+    title.add_css_class("title-1");
+    title.set_xalign(0.0);
+    let destination = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("backup file");
+    let description = Label::new(Some(&format!(
+        "The backup will be encrypted for {destination}. Choose a separate password; it is not your vault password. You will need it to restore this backup on another device."
+    )));
+    description.set_wrap(true);
+    description.set_xalign(0.0);
+    description.add_css_class("dim-label");
+    page.append(&title);
+    page.append(&description);
+
+    let password = labeled_entry(&page, "Backup password", "Enter a new backup password");
+    password.set_visibility(false);
+    password.set_input_purpose(gtk::InputPurpose::Password);
+    password.set_max_length(1024);
+    password.set_widget_name("suika-secret-entry");
+    let confirmation = labeled_entry(&page, "Confirm backup password", "Re-enter the backup password");
+    confirmation.set_visibility(false);
+    confirmation.set_input_purpose(gtk::InputPurpose::Password);
+    confirmation.set_max_length(1024);
+    confirmation.set_widget_name("suika-secret-entry");
+
+    let status = Label::new(None);
+    status.set_wrap(true);
+    status.set_xalign(0.0);
+    let buttons = GtkBox::new(Orientation::Horizontal, 8);
+    let cancel = Button::with_label("Cancel");
+    let export = Button::with_label("Create backup");
+    export.add_css_class("suggested-action");
+    export.set_hexpand(true);
+    buttons.append(&cancel);
+    buttons.append(&export);
+
+    page.append(&status);
+    page.append(&buttons);
+
+    let stack_for_cancel = stack.downgrade();
+    let window_for_cancel = window.downgrade();
+    let directory_for_cancel = directory.clone();
+    let unlocked_for_cancel = unlocked.clone();
+    let password_for_cancel = password.clone();
+    let confirmation_for_cancel = confirmation.clone();
+    cancel.connect_clicked(move |_| {
+        password_for_cancel.set_text("");
+        confirmation_for_cancel.set_text("");
+        if let (Some(stack), Some(window)) =
+            (stack_for_cancel.upgrade(), window_for_cancel.upgrade())
+        {
+            show_accounts_page(
+                &stack,
+                &window,
+                directory_for_cancel.clone(),
+                unlocked_for_cancel.clone(),
+            );
+        }
+    });
+
+    let status_for_export = status.clone();
+    let export_for_export = export.clone();
+    let password_for_export = password.clone();
+    let confirmation_for_export = confirmation.clone();
+    let directory_for_export = directory.clone();
+    let unlocked_for_export = unlocked.clone();
+    let stack_weak = stack.downgrade();
+    let window_weak = window.downgrade();
+    export.connect_clicked(move |_| {
+        let password_bytes = Zeroizing::new(password_for_export.text().as_bytes().to_vec());
+        let confirmation_bytes =
+            Zeroizing::new(confirmation_for_export.text().as_bytes().to_vec());
+        password_for_export.set_text("");
+        confirmation_for_export.set_text("");
+
+        if password_bytes.is_empty() {
+            status_for_export.set_text("Choose a non-empty backup password.");
+            return;
+        }
+        if password_bytes.len() > 1024 {
+            status_for_export.set_text("The backup password exceeds the supported 1024-byte limit.");
+            return;
+        }
+        if password_bytes.as_slice() != confirmation_bytes.as_slice() {
+            status_for_export.set_text("The backup password confirmation does not match.");
+            return;
+        }
+
+        let plaintext = {
+            let borrowed = unlocked_for_export.borrow();
+            match borrowed.as_ref() {
+                Some(vault) => match vault.accounts.encode() {
+                    Ok(plaintext) => plaintext,
+                    Err(error) => {
+                        status_for_export.set_text(&error.to_string());
+                        return;
+                    }
+                },
+                None => {
+                    status_for_export.set_text("The vault is locked. Unlock it before creating a backup.");
+                    return;
+                }
+            }
+        };
+
+        export_for_export.set_sensitive(false);
+        status_for_export.set_text("Deriving the backup key and encrypting…");
+        let path = path.clone();
+        let (sender, receiver) = mpsc::sync_channel(1);
+        let worker = thread::Builder::new()
+            .name("suika-backup-export".to_owned())
+            .spawn(move || {
+                let encrypted = Backup::create(
+                    plaintext.as_slice(),
+                    password_bytes.as_slice(),
+                    KdfParams::PRODUCTION,
+                );
+                drop(plaintext);
+                drop(password_bytes);
+                let result = encrypted
+                    .map_err(|error| error.to_string())
+                    .and_then(|backup| {
+                        let length = backup.len();
+                        write_backup_file(&path, &backup).map(|()| length)
+                    });
+                let _ = sender.send(result);
+            });
+        if let Err(error) = worker {
+            export_for_export.set_sensitive(true);
+            status_for_export.set_text(&format!("Could not start the backup worker: {error}"));
+            return;
+        }
+
+        let status_for_completion = status_for_export.clone();
+        let export_for_completion = export_for_export.clone();
+        let directory_for_completion = directory_for_export.clone();
+        let unlocked_for_completion = unlocked_for_export.clone();
+        let stack_for_completion = stack_weak.clone();
+        let window_for_completion = window_weak.clone();
+        glib::source::timeout_add_local(Duration::from_millis(100), move || {
+            match receiver.try_recv() {
+                Ok(result) => {
+                    export_for_completion.set_sensitive(true);
+                    match result {
+                        Ok(length) => {
+                            if let (Some(stack), Some(window)) =
+                                (stack_for_completion.upgrade(), window_for_completion.upgrade())
+                            {
+                                if unlocked_for_completion.borrow().is_some() {
+                                    show_accounts_page(
+                                        &stack,
+                                        &window,
+                                        directory_for_completion.clone(),
+                                        unlocked_for_completion.clone(),
+                                    );
+                                }
+                                show_message_dialog(
+                                    &window,
+                                    "Backup created",
+                                    &format!(
+                                        "The encrypted backup was written successfully ({length} bytes). Keep the separate password safe; it cannot be recovered."
+                                    ),
+                                );
+                            }
+                        }
+                        Err(message) => status_for_completion.set_text(&message),
+                    }
+                    ControlFlow::Break
+                }
+                Err(TryRecvError::Empty) => ControlFlow::Continue,
+                Err(TryRecvError::Disconnected) => {
+                    export_for_completion.set_sensitive(true);
+                    status_for_completion.set_text("The backup worker stopped unexpectedly.");
+                    ControlFlow::Break
+                }
+            }
+        });
+    });
+
+    replace_page(stack, "backup-export", &page);
+}
+
+fn show_backup_restore_page(
+    stack: &Stack,
+    window: &ApplicationWindow,
+    directory: PathBuf,
+    unlocked: Rc<RefCell<Option<AuthenticatedVault>>>,
+    path: PathBuf,
+) {
+    let page = GtkBox::new(Orientation::Vertical, 14);
+    page.set_margin_top(28);
+    page.set_margin_bottom(28);
+    page.set_margin_start(28);
+    page.set_margin_end(28);
+
+    let title = Label::new(Some("Restore encrypted backup"));
+    title.add_css_class("title-1");
+    title.set_xalign(0.0);
+    let warning = Label::new(Some(
+        "Restoring replaces every authenticator currently in your vault. It does not merge accounts. The existing account list remains unchanged unless the backup is fully authenticated, validated, and saved successfully.",
+    ));
+    warning.set_wrap(true);
+    warning.set_xalign(0.0);
+    warning.add_css_class("dim-label");
+    let filename = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("backup file");
+    let file_label = Label::new(Some(&format!("Selected file: {filename}")));
+    file_label.set_xalign(0.0);
+    page.append(&title);
+    page.append(&warning);
+    page.append(&file_label);
+
+    let password = labeled_entry(&page, "Backup password", "Enter the password used for this backup");
+    password.set_visibility(false);
+    password.set_input_purpose(gtk::InputPurpose::Password);
+    password.set_max_length(1024);
+    password.set_widget_name("suika-secret-entry");
+
+    let status = Label::new(None);
+    status.set_wrap(true);
+    status.set_xalign(0.0);
+    let buttons = GtkBox::new(Orientation::Horizontal, 8);
+    let cancel = Button::with_label("Cancel");
+    let restore = Button::with_label("Replace current accounts");
+    restore.add_css_class("destructive-action");
+    restore.set_hexpand(true);
+    buttons.append(&cancel);
+    buttons.append(&restore);
+
+    page.append(&status);
+    page.append(&buttons);
+
+    let stack_for_cancel = stack.downgrade();
+    let window_for_cancel = window.downgrade();
+    let directory_for_cancel = directory.clone();
+    let unlocked_for_cancel = unlocked.clone();
+    let password_for_cancel = password.clone();
+    cancel.connect_clicked(move |_| {
+        password_for_cancel.set_text("");
+        if let (Some(stack), Some(window)) =
+            (stack_for_cancel.upgrade(), window_for_cancel.upgrade())
+        {
+            show_accounts_page(
+                &stack,
+                &window,
+                directory_for_cancel.clone(),
+                unlocked_for_cancel.clone(),
+            );
+        }
+    });
+
+    let status_for_restore = status.clone();
+    let restore_for_restore = restore.clone();
+    let cancel_for_restore = cancel.clone();
+    let password_for_restore = password.clone();
+    let directory_for_restore = directory.clone();
+    let unlocked_for_restore = unlocked.clone();
+    let stack_weak = stack.downgrade();
+    let window_weak = window.downgrade();
+    restore.connect_clicked(move |_| {
+        let password_bytes = Zeroizing::new(password_for_restore.text().as_bytes().to_vec());
+        password_for_restore.set_text("");
+        if password_bytes.is_empty() {
+            status_for_restore.set_text("Enter the backup password.");
+            return;
+        }
+        if password_bytes.len() > 1024 {
+            status_for_restore.set_text("The backup password exceeds the supported 1024-byte limit.");
+            return;
+        }
+
+        restore_for_restore.set_sensitive(false);
+        cancel_for_restore.set_sensitive(false);
+        status_for_restore.set_text("Reading, authenticating, and validating the backup…");
+        let path = path.clone();
+        let (sender, receiver) = mpsc::sync_channel(1);
+        let worker = thread::Builder::new()
+            .name("suika-backup-restore".to_owned())
+            .spawn(move || {
+                let result = read_backup_file(&path)
+                    .and_then(|backup| {
+                        Backup::restore(&backup, password_bytes.as_slice())
+                            .map_err(|error| error.to_string())
+                    });
+                let _ = sender.send(result);
+            });
+        if let Err(error) = worker {
+            restore_for_restore.set_sensitive(true);
+            cancel_for_restore.set_sensitive(true);
+            status_for_restore.set_text(&format!("Could not start the restore worker: {error}"));
+            return;
+        }
+
+        let status_for_completion = status_for_restore.clone();
+        let restore_for_completion = restore_for_restore.clone();
+        let directory_for_completion = directory_for_restore.clone();
+        let unlocked_for_completion = unlocked_for_restore.clone();
+        let stack_for_completion = stack_weak.clone();
+        let window_for_completion = window_weak.clone();
+        glib::source::timeout_add_local(Duration::from_millis(100), move || {
+            match receiver.try_recv() {
+                Ok(result) => {
+                    restore_for_completion.set_sensitive(true);
+                    cancel_for_restore.set_sensitive(true);
+                    match result {
+                        Ok(plaintext) => {
+                            let persisted = persist_backup_restore(
+                                &unlocked_for_completion,
+                                &directory_for_completion,
+                                plaintext,
+                            );
+                            match persisted {
+                                Ok(restored_count) => {
+                                    if let (Some(stack), Some(window)) =
+                                        (stack_for_completion.upgrade(), window_for_completion.upgrade())
+                                    {
+                                        show_accounts_page(
+                                            &stack,
+                                            &window,
+                                            directory_for_completion.clone(),
+                                            unlocked_for_completion.clone(),
+                                        );
+                                        show_message_dialog(
+                                            &window,
+                                            "Backup restored",
+                                            &format!(
+                                                "Restored {restored_count} account(s). The previous account list was replaced."
+                                            ),
+                                        );
+                                    }
+                                }
+                                Err(message) => status_for_completion.set_text(&message),
+                            }
+                        }
+                        Err(message) => status_for_completion.set_text(&message),
+                    }
+                    ControlFlow::Break
+                }
+                Err(TryRecvError::Empty) => ControlFlow::Continue,
+                Err(TryRecvError::Disconnected) => {
+                    restore_for_completion.set_sensitive(true);
+                    cancel_for_restore.set_sensitive(true);
+                    status_for_completion.set_text("The backup restore worker stopped unexpectedly.");
+                    ControlFlow::Break
+                }
+            }
+        });
+    });
+
+    replace_page(stack, "backup-restore", &page);
+}
+
+fn persist_backup_restore(
+    unlocked: &Rc<RefCell<Option<AuthenticatedVault>>>,
+    directory: &Path,
+    plaintext: Zeroizing<Vec<u8>>,
+) -> Result<usize, String> {
+    let candidate = AccountDatabase::decode(&plaintext).map_err(|error| error.to_string())?;
+    let restored_count = candidate.len();
+    let store = VaultStore::open(directory).map_err(|error| error.to_string())?;
+
+    let mut guard = unlocked.borrow_mut();
+    let vault = guard
+        .as_mut()
+        .ok_or_else(|| "The vault is locked. Unlock it before restoring a backup.".to_owned())?;
+    let previous_plaintext = Zeroizing::new(vault.session.plaintext().to_vec());
+    vault
+        .session
+        .replace_plaintext(plaintext)
+        .map_err(|error| error.to_string())?;
+
+    let encrypted = match vault.session.seal_current() {
+        Ok(encrypted) => encrypted,
+        Err(error) => {
+            let _ = vault.session.replace_plaintext(previous_plaintext);
+            return Err(error.to_string());
+        }
+    };
+    if let Err(error) = store.save(&encrypted) {
+        let _ = vault.session.replace_plaintext(previous_plaintext);
+        return Err(error.to_string());
+    }
+
+    vault.accounts = candidate;
+    Ok(restored_count)
+}
+
+fn read_backup_file(path: &Path) -> Result<Zeroizing<Vec<u8>>, String> {
+    let metadata = fs::metadata(path).map_err(|_| "The selected backup could not be opened.")?;
+    let maximum_bytes = u64::try_from(MAX_BACKUP_FILE_BYTES)
+        .map_err(|_| "The backup size limit is invalid.".to_owned())?;
+    let minimum_bytes = u64::try_from(suika_core::backup::MIN_BACKUP_FILE_BYTES)
+        .map_err(|_| "The backup size limit is invalid.".to_owned())?;
+    if !metadata.is_file() || metadata.len() > maximum_bytes {
+        return Err("Choose a regular encrypted backup within the supported size limit.".to_owned());
+    }
+    if metadata.len() < minimum_bytes {
+        return Err("The selected backup is malformed or truncated.".to_owned());
+    }
+
+    let capacity = usize::try_from(metadata.len())
+        .map_err(|_| "The selected backup size is invalid.".to_owned())?;
+    let file = fs::File::open(path).map_err(|_| "The selected backup could not be read.")?;
+    let mut input = Zeroizing::new(Vec::with_capacity(capacity));
+    let read_limit = metadata
+        .len()
+        .checked_add(1)
+        .ok_or_else(|| "The selected backup size is invalid.".to_owned())?;
+    let bytes_read = file
+        .take(read_limit)
+        .read_to_end(&mut input)
+        .map_err(|_| "The selected backup could not be read.")?;
+    if bytes_read as u64 != metadata.len() {
+        return Err("The selected backup changed while it was being read.".to_owned());
+    }
+    Backup::validate_serialized(&input).map_err(|error| error.to_string())?;
+    Ok(input)
+}
+
+fn write_backup_file(path: &Path, encrypted: &[u8]) -> Result<(), String> {
+    if !path.is_absolute() {
+        return Err("Choose an absolute backup file destination.".to_owned());
+    }
+    if encrypted.len() > MAX_BACKUP_FILE_BYTES {
+        return Err("The encrypted backup exceeds the supported size limit.".to_owned());
+    }
+    let parent = path
+        .parent()
+        .ok_or_else(|| "The selected backup destination has no parent directory.".to_owned())?;
+    let filename = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| "The selected backup filename is invalid.".to_owned())?;
+
+    static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
+    let mut last_error = None;
+    for _ in 0..8 {
+        let sequence = TEMP_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let temporary = parent.join(format!(
+            ".{filename}.suika-backup-{}-{sequence}.tmp",
+            std::process::id()
+        ));
+        let mut options = fs::OpenOptions::new();
+        options.write(true).create_new(true).mode(0o600);
+        let mut file = match options.open(&temporary) {
+            Ok(file) => file,
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                last_error = Some(error);
+                continue;
+            }
+            Err(error) => return Err(error.to_string()),
+        };
+
+        let result = file
+            .write_all(encrypted)
+            .and_then(|()| file.sync_all())
+            .map_err(|error| error.to_string());
+        drop(file);
+        if let Err(message) = result {
+            let _ = fs::remove_file(&temporary);
+            return Err(message);
+        }
+        if let Err(error) = fs::rename(&temporary, path) {
+            let _ = fs::remove_file(&temporary);
+            return Err(error.to_string());
+        }
+        fs::File::open(parent)
+            .and_then(|directory| directory.sync_all())
+            .map_err(|error| format!("Backup file was written, but its directory could not be synced: {error}"))?;
+        return Ok(());
+    }
+
+    Err(last_error
+        .map(|error| format!("Could not create a unique temporary backup file: {error}"))
+        .unwrap_or_else(|| "Could not create a temporary backup file.".to_owned()))
+}
+
 fn persist_vault(vault: &mut AuthenticatedVault, directory: &Path) -> Result<(), String> {
     let plaintext = vault.accounts.encode().map_err(|error| error.to_string())?;
     vault
@@ -1791,7 +2288,13 @@ fn show_accounts_page(
     directory: PathBuf,
     unlocked: Rc<RefCell<Option<AuthenticatedVault>>>,
 ) {
-    for name in ["add-account", "edit-account", "aegis-import"] {
+    for name in [
+        "add-account",
+        "edit-account",
+        "aegis-import",
+        "backup-export",
+        "backup-restore",
+    ] {
         if let Some(form_page) = stack.child_by_name(name) {
             stack.remove(&form_page);
         }
@@ -1874,6 +2377,106 @@ fn show_accounts_page(
             });
         }
     });
+
+    let backup_actions = GtkBox::new(Orientation::Horizontal, 8);
+    let create_backup = Button::with_label("Create encrypted backup");
+    let restore_backup = Button::with_label("Restore encrypted backup");
+    backup_actions.append(&create_backup);
+    backup_actions.append(&restore_backup);
+    page.append(&backup_actions);
+
+    let stack_for_backup_export = stack.downgrade();
+    let window_for_backup_export = window.downgrade();
+    let directory_for_backup_export = directory.clone();
+    let unlocked_for_backup_export = unlocked.clone();
+    create_backup.connect_clicked(move |_| {
+        let file_dialog = gtk::FileDialog::builder()
+            .title("Create encrypted backup")
+            .accept_label("Save")
+            .initial_name("SuikaAuthenticator.suikabak")
+            .modal(true)
+            .build();
+        let stack_weak = stack_for_backup_export.clone();
+        let window_weak = window_for_backup_export.clone();
+        let directory_for_file = directory_for_backup_export.clone();
+        let unlocked_for_file = unlocked_for_backup_export.clone();
+        if let Some(parent) = window_for_backup_export.upgrade() {
+            file_dialog.save(Some(&parent), None::<&gio::Cancellable>, move |result| {
+                let Ok(file) = result else {
+                    return;
+                };
+                let Some(path) = file.path() else {
+                    if let Some(window) = window_weak.upgrade() {
+                        show_message_dialog(
+                            &window,
+                            "Backup unavailable",
+                            "Choose a local file destination for the encrypted backup.",
+                        );
+                    }
+                    return;
+                };
+                if let (Some(stack), Some(window)) = (stack_weak.upgrade(), window_weak.upgrade()) {
+                    show_backup_export_page(
+                        &stack,
+                        &window,
+                        directory_for_file.clone(),
+                        unlocked_for_file.clone(),
+                        path,
+                    );
+                }
+            });
+        }
+    });
+
+    let stack_for_backup_restore = stack.downgrade();
+    let window_for_backup_restore = window.downgrade();
+    let directory_for_backup_restore = directory.clone();
+    let unlocked_for_backup_restore = unlocked.clone();
+    restore_backup.connect_clicked(move |_| {
+        let file_dialog = gtk::FileDialog::builder()
+            .title("Restore encrypted backup")
+            .accept_label("Open")
+            .modal(true)
+            .build();
+        let stack_weak = stack_for_backup_restore.clone();
+        let window_weak = window_for_backup_restore.clone();
+        let directory_for_file = directory_for_backup_restore.clone();
+        let unlocked_for_file = unlocked_for_backup_restore.clone();
+        if let Some(parent) = window_for_backup_restore.upgrade() {
+            file_dialog.open(Some(&parent), None::<&gio::Cancellable>, move |result| {
+                let Ok(file) = result else {
+                    return;
+                };
+                let Some(path) = file.path() else {
+                    if let Some(window) = window_weak.upgrade() {
+                        show_message_dialog(
+                            &window,
+                            "Restore unavailable",
+                            "Choose a local SuikaAuthenticator backup file.",
+                        );
+                    }
+                    return;
+                };
+                if let (Some(stack), Some(window)) = (stack_weak.upgrade(), window_weak.upgrade()) {
+                    show_backup_restore_page(
+                        &stack,
+                        &window,
+                        directory_for_file.clone(),
+                        unlocked_for_file.clone(),
+                        path,
+                    );
+                }
+            });
+        }
+    });
+
+    let backup_hint = Label::new(Some(
+        "Backups use a separate password and can be restored on Linux or Android. Restore replaces all current accounts; it does not merge them.",
+    ));
+    backup_hint.set_wrap(true);
+    backup_hint.add_css_class("dim-label");
+    backup_hint.set_xalign(0.0);
+    page.append(&backup_hint);
 
     let count = unlocked
         .borrow()

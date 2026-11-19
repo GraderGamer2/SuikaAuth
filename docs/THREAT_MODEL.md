@@ -49,7 +49,9 @@ Status: initial design baseline; update this document whenever the security arch
 - Parse external provisioning URIs and Aegis exports as untrusted input; validate their KDF parameters, OTP types, and metadata.
 - Merge imports into a candidate account database and commit only after the entire import validates and the normal encrypted vault save succeeds.
 - Atomic vault replacement and preservation of the previous valid file during writes.
-- No plaintext temporary database or plaintext backup.
+- Portable backups use a fresh independent DEK, a separate user-supplied backup password, and domain-separated authentication for the wrapped DEK and account database. The vault master password and Android biometric key are not reused.
+- Backup restore must authenticate the complete container, validate the entire account database, and replace the live vault only after encrypted persistence succeeds; failed restore leaves the prior vault unchanged.
+- No plaintext temporary database or plaintext backup. Linux exports use mode-0600 temporary files and atomic rename; Android exports use a user-selected system document destination.
 - Zeroization of key material and decrypted buffers where practical.
 - No application logs, tracing, profiling, telemetry, or crash-reporting SDKs.
 - Rust panic hooks suppress default panic details; panics still terminate according to the release panic strategy.

@@ -15,6 +15,7 @@ use jni::sys::{jboolean, jbyteArray, jint, jlong, jobjectArray};
 use jni::{Env, EnvUnowned};
 use suika_core::accounts::{Account, AccountDatabase, AccountMode};
 use suika_core::aegis::import_aegis_export;
+use suika_core::backup::Backup;
 use suika_core::base32::decode_base32;
 use suika_core::crypto::KdfParams;
 use suika_core::otp::OtpAlgorithm;
@@ -302,6 +303,55 @@ fn import_aegis_file(
     }
     persist_candidate(session, candidate)?;
     Ok((imported_count, skipped_unsupported))
+}
+
+fn export_backup(handle: jlong, password: &[u8]) -> Result<Vec<u8>, String> {
+    let handle =
+        u64::try_from(handle).map_err(|_| "Native session handle is invalid.".to_owned())?;
+    let plaintext = {
+        let registry = sessions()
+            .lock()
+            .map_err(|_| "Native session registry is unavailable.".to_owned())?;
+        let session = registry
+            .get(&handle)
+            .ok_or_else(|| "The native vault session is no longer active.".to_owned())?;
+        Zeroizing::new(session.vault.plaintext().to_vec())
+    };
+
+    Backup::create(&plaintext, password, KdfParams::PRODUCTION)
+        .map_err(|error| error.to_string())
+}
+
+fn restore_backup(
+    handle: jlong,
+    encoded_backup: &[u8],
+    password: &[u8],
+) -> Result<usize, String> {
+    let handle =
+        u64::try_from(handle).map_err(|_| "Native session handle is invalid.".to_owned())?;
+    {
+        let registry = sessions()
+            .lock()
+            .map_err(|_| "Native session registry is unavailable.".to_owned())?;
+        if !registry.contains_key(&handle) {
+            return Err("The native vault session is no longer active.".to_owned());
+        }
+    }
+
+    let plaintext = Backup::restore(encoded_backup, password)
+        .map_err(|error| error.to_string())?;
+    let candidate =
+        AccountDatabase::decode(&plaintext).map_err(|error| error.to_string())?;
+    let restored_count = candidate.len();
+
+    let mut registry = sessions()
+        .lock()
+        .map_err(|_| "Native session registry is unavailable.".to_owned())?;
+    let session = registry
+        .get_mut(&handle)
+        .ok_or_else(|| "The native vault session is no longer active.".to_owned())?;
+    persist_candidate(session, candidate)?;
+    Ok(restored_count)
 }
 
 fn update_account(
@@ -707,6 +757,52 @@ pub extern "system" fn Java_org_suika_suikaauthenticator_NativeBridge_nativeImpo
                     let summary = format!("{imported}:{skipped}");
                     Ok(JString::from_str(env, &summary)?.into_raw())
                 }
+                Err(message) => throw_state_error(env, &message),
+            }
+        })
+        .resolve::<ThrowRuntimeExAndDefault>()
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_org_suika_suikaauthenticator_NativeBridge_nativeExportBackup<
+    'local,
+>(
+    mut unowned_env: EnvUnowned<'local>,
+    _class: JClass<'local>,
+    handle: jlong,
+    encoded_password: JByteArray<'local>,
+) -> jbyteArray {
+    unowned_env
+        .with_env(|env| -> jni::errors::Result<jbyteArray> {
+            let password = Zeroizing::new(env.convert_byte_array(&encoded_password)?);
+            let backup = match export_backup(handle, &password) {
+                Ok(backup) => backup,
+                Err(message) => return throw_state_error(env, &message),
+            };
+            Ok(env.byte_array_from_slice(&backup)?.into_raw())
+        })
+        .resolve::<ThrowRuntimeExAndDefault>()
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_org_suika_suikaauthenticator_NativeBridge_nativeRestoreBackup<
+    'local,
+>(
+    mut unowned_env: EnvUnowned<'local>,
+    _class: JClass<'local>,
+    handle: jlong,
+    encoded_backup: JByteArray<'local>,
+    encoded_password: JByteArray<'local>,
+) -> jint {
+    unowned_env
+        .with_env(|env| -> jni::errors::Result<jint> {
+            let backup = Zeroizing::new(env.convert_byte_array(&encoded_backup)?);
+            let password = Zeroizing::new(env.convert_byte_array(&encoded_password)?);
+            match restore_backup(handle, &backup, &password) {
+                Ok(count) => match jint::try_from(count) {
+                    Ok(count) => Ok(count),
+                    Err(_) => throw_state_error(env, "The restored account count is invalid."),
+                },
                 Err(message) => throw_state_error(env, &message),
             }
         })
