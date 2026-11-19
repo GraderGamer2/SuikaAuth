@@ -3,6 +3,9 @@
 All notable project changes will be recorded here.
 
 ## Unreleased
+- Added the first native Android application using platform Views and a separate Rust JNI Cargo workspace. The initial screen supports encrypted-vault creation/unlock, TOTP account listing/enrollment, explicit lock, background lock, and five-minute inactivity lock.
+- Added Android JNI build steps for arm64-v8a and x86_64 using pinned AGP 9.6.0 / Gradle 9.8.2 / NDK 28.2.13676358 / cargo-ndk 4.1.2.
+- Updated Android toolchain documentation against the official AGP 9.6.0 compatibility table; corrected its Gradle requirement to 9.8.2.
 - Collapsed the GTK secret-entry cleanup condition to satisfy strict Clippy on the stable Rust toolchain without changing traversal or cleanup behavior.
 - Raised the bounded Base32 data-character ceiling to 208 so structurally complete over-sized inputs reach the decoded-byte limit check rather than being misclassified as malformed length.
 

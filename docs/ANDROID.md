@@ -8,10 +8,10 @@ The Android package will contain:
 
 - `android/app/`: Kotlin application and Android resources.
 - `android/native/`: an Android-only Rust JNI bridge crate.
-- `android/gradle/` and the Gradle wrapper: pinned Gradle build tooling.
+- `android/gradle/`: Gradle build configuration. CI installs the exact Gradle version through the pinned setup-gradle action; this initial scaffold does not check in a wrapper JAR.
 - `android/app/src/main/jniLibs/`: generated Rust shared libraries arranged by Android ABI; do not check generated binaries into Git.
 
-The JNI bridge is intentionally outside the root Rust workspace. It can depend on `suika-core` by path, but Android-only JNI dependencies must not enter the Linux workspace or the shared core dependency graph.
+The JNI bridge is intentionally an independent Cargo workspace rooted at `android/native/`. It depends on `suika-core` by path, but its JNI dependency and Android ABI configuration do not enter the Linux workspace or the shared core dependency graph.
 
 ## Native library and ABI targets
 
@@ -20,15 +20,17 @@ The initial Android package will ship two 64-bit ABIs:
 - `arm64-v8a` — physical ARM64 Android devices.
 - `x86_64` — Android emulators and x86-64 devices.
 
-Android expects native libraries inside the APK at `lib/<abi>/lib<name>.so`. Build the Rust shared library with `cargo-ndk`, placing the results under `android/app/src/main/jniLibs/`. Use explicit target/API-level inputs and pin the Rust toolchain, NDK, cargo-ndk version, and Gradle tooling in CI.
+Android expects native libraries inside the APK at `lib/<abi>/lib<name>.so`. Build the Rust shared library with `cargo-ndk`, placing the results under `android/app/src/main/jniLibs/`. Use explicit target/API-level inputs. CI pins the Rust stable toolchain, NDK 28.2.13676358, cargo-ndk 4.1.2, Gradle 9.8.2, and the Android Gradle Plugin 9.6.0.
 
-The initial Android build baseline is Android Gradle Plugin 9.4.0 with Gradle 9.6.0, SDK Build Tools 36.0.0, NDK 28.2.13676358, and JDK 17. These are the versions documented by the AGP 9.4.0 release notes (September 2026); re-check the official release notes when the Gradle project is created and pin exact versions. AGP 9 enables built-in Kotlin support, so do not also apply `org.jetbrains.kotlin.android` to the application module. Avoid dynamic version selectors such as `9.+`.
+The initial Android build baseline is Android Gradle Plugin 9.6.0 with Gradle 9.8.2, SDK Build Tools 36.0.0, NDK 28.2.13676358, and JDK 17. The AGP 9.6.0 compatibility table lists these exact minimum/default tool versions and supports API level 37. AGP 9 enables built-in Kotlin support, so do not also apply `org.jetbrains.kotlin.android` to the application module. The CI workflow pins Gradle 9.8.2 and installs the SDK/NDK packages explicitly.
 
-References: [AGP 9.4.0 release notes](https://developer.android.com/build/releases/agp-9-4-0-release-notes) and [Migrate to built-in Kotlin](https://developer.android.com/build/migrate-to-built-in-kotlin).
+References: [AGP 9.6.0 compatibility notes](https://developer.android.com/build/releases/agp-9-6-0-release-notes) and [Migrate to built-in Kotlin](https://developer.android.com/build/migrate-to-built-in-kotlin).
 
 ## Rust/Kotlin boundary
 
-The JNI bridge exposes a narrow API for:
+The first Android vertical slice exposes a narrow JNI API for vault existence checks, vault creation, password unlock, account listing, TOTP enrollment, and explicit session locking. The bridge exposes only display metadata and generated codes, never raw account secrets. The API will be extended as account management is brought to parity with Linux.
+
+The planned full JNI API covers:
 
 - creating and unlocking the encrypted vault;
 - listing account display data and generating current codes;

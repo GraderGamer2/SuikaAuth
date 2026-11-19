@@ -1,0 +1,18 @@
+[package]
+name = "suika-authenticator-android-native"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+publish = false
+
+[lib]
+name = "suika_authenticator_android"
+crate-type = ["cdylib"]
+
+[dependencies]
+getrandom = "=0.4.3"
+jni = { version = "=0.22.4", default-features = false }
+suika-core = { path = "../../crates/suika-core" }
+zeroize = { version = "=1.9.0", default-features = false, features = ["alloc"] }
+
+[workspace]

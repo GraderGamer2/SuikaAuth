@@ -141,11 +141,11 @@ jobs:
         id: detect
         shell: bash
         run: |
-          if [[ -f android/gradlew && ( -f android/settings.gradle.kts || -f android/settings.gradle ) ]]; then
+          if [[ -f android/settings.gradle.kts && -f android/app/build.gradle.kts && -f android/app/src/main/AndroidManifest.xml && -f android/native/Cargo.toml ]]; then
             echo "ready=true" >> "$GITHUB_OUTPUT"
           else
             echo "ready=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::Android build skipped: the Android Gradle project and wrapper have not been added yet."
+            echo "::notice::Android build skipped: the Kotlin application and isolated Rust JNI crate are incomplete."
           fi
 
       - name: Set up Java
@@ -159,16 +159,44 @@ jobs:
         if: steps.detect.outputs.ready == 'true'
         uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # android-actions/setup-android v4.0.4
 
-      - name: Set up Gradle
+      - name: Install pinned Android SDK and NDK packages
         if: steps.detect.outputs.ready == 'true'
-        uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # gradle/actions v6.4.1
+        run: |
+          sdkmanager --install \
+            "platforms;android-37" \
+            "build-tools;36.0.0" \
+            "ndk;28.2.13676358"
 
-      - name: Build Android debug APK
+      - name: Set up Rust for Android
+        if: steps.detect.outputs.ready == 'true'
+        uses: actions-rust-lang/setup-rust-toolchain@a188e68d0fd2bd36ad51dccb2b07ba6e75105f30 # setup-rust-toolchain v2.0.1
+        with:
+          toolchain: stable
+          cache: true
+
+      - name: Install cargo-ndk
+        if: steps.detect.outputs.ready == 'true'
+        run: cargo install cargo-ndk --version 4.1.2 --locked
+
+      - name: Build Rust JNI library for Android ABIs
         if: steps.detect.outputs.ready == 'true'
         shell: bash
         run: |
-          chmod +x android/gradlew
-          ./android/gradlew --no-daemon --stacktrace -p android assembleDebug
+          export ANDROID_NDK_HOME="$ANDROID_SDK_ROOT/ndk/28.2.13676358"
+          rustup target add aarch64-linux-android x86_64-linux-android
+          cargo ndk -t arm64-v8a -t x86_64 \
+            -o android/app/src/main/jniLibs \
+            build --release --manifest-path android/native/Cargo.toml
+
+      - name: Set up Gradle 9.8.2
+        if: steps.detect.outputs.ready == 'true'
+        uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # gradle/actions v6.4.1
+        with:
+          gradle-version: "9.8.2"
+
+      - name: Build Android debug APK
+        if: steps.detect.outputs.ready == 'true'
+        run: gradle --no-daemon --stacktrace -p android assembleDebug
 
       - name: Prepare Android download
         if: steps.detect.outputs.ready == 'true'

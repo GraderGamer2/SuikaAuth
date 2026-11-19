@@ -35,3 +35,6 @@ Thumbs.db
 .env.*
 *.keystore
 *.jks
+
+# Android Rust JNI generated libraries
+/android/app/src/main/jniLibs/**/*.so

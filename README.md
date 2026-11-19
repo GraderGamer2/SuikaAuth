@@ -32,11 +32,11 @@ Do not scatter application data across XDG configuration, data, or cache directo
 
 ## Development status
 
-See ROADMAP.md for the authoritative implementation sequence and current milestone. The shared Rust core includes RFC-tested TOTP/HOTP generation, bounded RFC 4648 Base32 decoding, an Argon2id/XChaCha20 encrypted vault, a compact versioned account database, and atomic app-directory vault storage. The GTK4 Linux frontend supports first-run vault creation and unlock, live OTP display, TOTP/HOTP enrollment, click-to-copy, HOTP counter advancement, local search, account editing/removal, explicit locking, and an automatic five-minute inactivity lock. The unlocked session is dropped on window close and application shutdown.
+See ROADMAP.md for the authoritative implementation sequence and current milestone. The shared Rust core includes RFC-tested TOTP/HOTP generation, bounded RFC 4648 Base32 decoding, an Argon2id/XChaCha20 encrypted vault, a compact versioned account database, and atomic app-directory vault storage. The GTK4 Linux frontend supports first-run vault creation and unlock, live OTP display, TOTP/HOTP enrollment, click-to-copy, HOTP counter advancement, local search, account editing/removal, explicit locking, and an automatic five-minute inactivity lock. The initial Android View-based frontend uses the same vault and Rust core through an isolated JNI library, supports TOTP enrollment/listing, and locks on backgrounding or five minutes of inactivity.
 
 ## CI downloads
 
-The Build binaries workflow is configured to build the Linux executable and Android debug APK once the platform projects exist.
+The Build binaries workflow builds the optimized Linux executable and Android debug APK. The Android job cross-compiles the shared Rust core bridge for arm64-v8a and x86_64 before assembling the APK.
 
 Successful build artifacts are available under the workflow run's Artifacts section and expire after **one day**. They are temporary CI downloads, not permanent GitHub Releases.
 

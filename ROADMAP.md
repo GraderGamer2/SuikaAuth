@@ -2,7 +2,7 @@
 
 This is the authoritative project roadmap. Update its checkboxes and the changelog as work is completed. Development follows this order unless a security or correctness issue requires reordering.
 
-Status: **Milestone 4 — Linux native frontend**
+Status: **Milestone 5 — Android native frontend (initial vertical slice)**
 
 ## 1. Repository and architecture foundation
 
@@ -54,13 +54,13 @@ Status: **Milestone 4 — Linux native frontend**
 
 ## 5. Android application
 
-- [ ] Add the native Kotlin Android frontend.
-- [ ] Integrate the same Rust core through JNI.
-- [ ] Store all app-owned persistent data inside one private app directory.
-- [ ] Add vault setup, unlock, account list, countdown, copy, search, and account management.
-- [ ] Add Android Keystore / BiometricPrompt device-bound DEK unlock.
-- [ ] Handle biometric enrollment changes and password fallback.
-- [ ] Build an installable debug APK for CI.
+- [x] Add the initial native Kotlin Android frontend using platform Views (no Compose/WebView).
+- [x] Integrate vault creation, password unlock, TOTP account listing/enrollment, and explicit session drop through an isolated JNI crate.
+- [x] Store the Android vault under one noBackupFilesDir/SuikaAuthenticator/ root.
+- [x] Add five-minute inactivity locking and foreground/background session cleanup in the initial Android screen.
+- [ ] Complete account editing/removal, HOTP handling, search parity, and broader lifecycle hardening.
+- [ ] Add Android Keystore / BiometricPrompt device-bound DEK unlock and enrollment-change handling.
+- [ ] Build and validate an installable debug APK in CI.
 
 ## 6. Enrollment and migration
 
