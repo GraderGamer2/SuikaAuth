@@ -96,6 +96,12 @@ jobs:
         if: steps.detect.outputs.core_ready == 'true'
         run: cargo fmt --all -- --check
 
+      - name: Diagnose root Cargo lockfile resolution
+        if: steps.detect.outputs.core_ready == 'true'
+        run: |
+          cargo metadata --format-version 1 >/dev/null
+          git diff -- Cargo.lock
+
       - name: Run Rust workspace tests
         if: steps.detect.outputs.core_ready == 'true'
         run: cargo test --locked --workspace --all-targets
@@ -187,6 +193,12 @@ jobs:
       - name: Check Android JNI formatting
         if: steps.detect.outputs.ready == 'true'
         run: cargo fmt --manifest-path android/native/Cargo.toml --all -- --check
+
+      - name: Diagnose Android Cargo lockfile resolution
+        if: steps.detect.outputs.ready == 'true'
+        run: |
+          cargo metadata --format-version 1 --manifest-path android/native/Cargo.toml >/dev/null
+          git diff -- android/native/Cargo.lock
 
       - name: Test Android JNI bridge
         if: steps.detect.outputs.ready == 'true'
