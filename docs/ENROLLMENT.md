@@ -30,4 +30,4 @@ Linux offers **Import QR image** on the Add account form. It opens a local image
 Both QR paths are transport mechanisms only. They do not maintain independent OTP parsers and never bypass the shared parser's Base32 secret, issuer, algorithm, digit, period, or counter checks. QR decoding libraries belong to the platform frontends, not the cryptographic core.
 
 
-Aegis JSON exports are handled by the separate offline migration path described in [MIGRATION.md](MIGRATION.md). Provisioning URI and QR enrollment remain the shared parser path for individual authenticator tokens.
+Aegis JSON exports and plaintext newline-delimited `otpauth://` text exports are handled by the offline migration paths described in [MIGRATION.md](MIGRATION.md). The text import path supports Ente Auth's plaintext URI-list export; it does not currently import Ente's separately encrypted JSON export. The selected text file contains unencrypted secret keys and should be securely deleted after migration. Provisioning URI and QR enrollment remain the shared parser path for individual authenticator tokens.

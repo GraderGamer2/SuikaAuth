@@ -19,6 +19,7 @@ final class NativeBridge {
     static native void nativeLockVault(long sessionHandle);
     static native String[] nativeListAccounts(long sessionHandle);
     static native void nativeImportOtpAuthUri(long sessionHandle, byte[] encodedUri);
+    static native int nativeImportOtpAuthUriList(long sessionHandle, byte[] encodedExport);
     static native String nativeImportAegisExport(
         long sessionHandle,
         byte[] encodedExport,

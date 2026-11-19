@@ -59,6 +59,7 @@ class MainActivity : FragmentActivity() {
 
     companion object {
         private const val MAX_AEGIS_EXPORT_BYTES = 16 * 1024 * 1024
+        private const val MAX_OTPAUTH_URI_LIST_BYTES = 16 * 1024 * 1024
         private const val MAX_BACKUP_PASSWORD_BYTES = 1024
         private const val MAX_BACKUP_FILE_BYTES = 158 + 16 * 1024 * 1024 + 16
     }
@@ -74,6 +75,7 @@ class MainActivity : FragmentActivity() {
     private var activeQrScannerCleanup: (() -> Unit)? = null
     private var sensitiveEnrollmentFields: List<EditText> = emptyList()
     private var pendingAegisUri: Uri? = null
+    private var pendingUriListUri: Uri? = null
     private var pendingBackupExportUri: Uri? = null
     private var pendingBackupRestoreUri: Uri? = null
     private var activeAegisPasswordDialog: AlertDialog? = null
@@ -109,6 +111,18 @@ class MainActivity : FragmentActivity() {
             promptAegisPassword()
         } else if (::status.isInitialized) {
             status.text = "Aegis export selected. Unlock your vault to continue the import."
+        }
+    }
+
+    private val uriListDocumentPicker = registerForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        pendingUriListUri = uri
+        if (uri == null) return@registerForActivityResult
+        if (activeHandle != null) {
+            importOtpauthUriList(uri)
+        } else if (::status.isInitialized) {
+            status.text = "Plaintext URI export selected. Unlock your vault to continue the import."
         }
     }
 
@@ -355,6 +369,19 @@ class MainActivity : FragmentActivity() {
                 )
             }
         }
+        addButton("Import plaintext URI list").setOnClickListener {
+            if (activeHandle == null) {
+                status.text = "Unlock your vault before importing a text export."
+            } else if (pendingUriListUri != null) {
+                importOtpauthUriList(pendingUriListUri ?: return@setOnClickListener)
+            } else {
+                uriListDocumentPicker.launch(arrayOf("text/plain", "text/*", "*/*"))
+            }
+        }
+        addText(
+            "Imports plaintext text exports containing one otpauth:// URI per line, including Ente Auth plaintext exports. The file contains secret keys; import only from a trusted source and delete the source file when no longer needed.",
+            12f
+        )
         addButton("Create encrypted backup").setOnClickListener {
             if (activeHandle == null) {
                 status.text = "Unlock your vault before creating a backup."
@@ -543,6 +570,9 @@ class MainActivity : FragmentActivity() {
         resetInactivityTimer()
         if (pendingAegisUri != null) {
             handler.post { promptAegisPassword() }
+        }
+        if (pendingUriListUri != null) {
+            handler.post { pendingUriListUri?.let(::importOtpauthUriList) }
         }
     }
 
@@ -779,14 +809,17 @@ class MainActivity : FragmentActivity() {
         }
     }
 
-    private fun readEncryptedBackup(uri: Uri): ByteArray {
-        val maximumBytes = MAX_BACKUP_FILE_BYTES
-        val input = contentResolver.openInputStream(uri)
-            ?: throw IllegalStateException("The selected backup could not be opened.")
-        val output = ZeroizingByteArrayOutputStream(
-            maximumBytes,
+    private fun readEncryptedBackup(uri: Uri): ByteArray =
+        readBoundedDocument(
+            uri,
+            MAX_BACKUP_FILE_BYTES,
             "The encrypted backup exceeds its supported size limit."
         )
+
+    private fun readBoundedDocument(uri: Uri, maximumBytes: Int, limitMessage: String): ByteArray {
+        val input = contentResolver.openInputStream(uri)
+            ?: throw IllegalStateException("The selected document could not be opened.")
+        val output = ZeroizingByteArrayOutputStream(maximumBytes, limitMessage)
         val buffer = ByteArray(8192)
         try {
             input.use { stream ->
@@ -795,7 +828,7 @@ class MainActivity : FragmentActivity() {
                     if (count < 0) break
                     if (count == 0) continue
                     if (count > maximumBytes || output.size() > maximumBytes - count) {
-                        throw IllegalArgumentException("The encrypted backup exceeds its supported size limit.")
+                        throw IllegalArgumentException(limitMessage)
                     }
                     output.write(buffer, 0, count)
                 }
@@ -804,6 +837,40 @@ class MainActivity : FragmentActivity() {
         } finally {
             buffer.fill(0)
             output.clear()
+        }
+    }
+
+    private fun importOtpauthUriList(uri: Uri) {
+        val handle = activeHandle
+        if (handle == null) {
+            pendingUriListUri = uri
+            status.text = "Unlock your vault before importing a text export."
+            return
+        }
+        pendingUriListUri = null
+        status.text = "Reading and validating plaintext URI export…"
+        worker.execute {
+            var encodedExport: ByteArray? = null
+            val result = runCatching {
+                encodedExport = readBoundedDocument(
+                    uri,
+                    MAX_OTPAUTH_URI_LIST_BYTES,
+                    "The plaintext URI export exceeds the 16 MiB import limit."
+                )
+                NativeBridge.nativeImportOtpAuthUriList(
+                    handle,
+                    encodedExport
+                        ?: throw IllegalStateException("The plaintext URI export could not be read.")
+                )
+            }
+            encodedExport?.fill(0)
+            runOnUiThread {
+                if (activeHandle != handle || isFinishing || isDestroyed) return@runOnUiThread
+                result.onSuccess { imported ->
+                    status.text = "Imported $imported authenticator account(s). The source text file is unchanged and contains unencrypted secret keys; delete it when no longer needed."
+                    refreshAccountsNow()
+                }.onFailure { showError(it) }
+            }
         }
     }
 
@@ -855,30 +922,12 @@ class MainActivity : FragmentActivity() {
         }
     }
 
-    private fun readAegisExport(uri: Uri): ByteArray {
-        val maximumBytes = MAX_AEGIS_EXPORT_BYTES
-        val input = contentResolver.openInputStream(uri)
-            ?: throw IllegalStateException("The selected Aegis export could not be opened.")
-        val output = ZeroizingByteArrayOutputStream(MAX_AEGIS_EXPORT_BYTES, "The Aegis export exceeds the 16 MiB import limit.")
-        val buffer = ByteArray(8192)
-        try {
-            input.use { stream ->
-                while (true) {
-                    val count = stream.read(buffer)
-                    if (count < 0) break
-                    if (count == 0) continue
-                    if (count > maximumBytes || output.size() > maximumBytes - count) {
-                        throw IllegalArgumentException("The Aegis export exceeds the 16 MiB import limit.")
-                    }
-                    output.write(buffer, 0, count)
-                }
-            }
-            return output.toByteArray()
-        } finally {
-            buffer.fill(0)
-            output.clear()
-        }
-    }
+    private fun readAegisExport(uri: Uri): ByteArray =
+        readBoundedDocument(
+            uri,
+            MAX_AEGIS_EXPORT_BYTES,
+            "The Aegis export exceeds the 16 MiB import limit."
+        )
 
     private class ZeroizingByteArrayOutputStream(
         private val maximumBytes: Int,

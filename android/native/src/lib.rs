@@ -19,7 +19,7 @@ use suika_core::backup::Backup;
 use suika_core::base32::decode_base32;
 use suika_core::crypto::KdfParams;
 use suika_core::otp::OtpAlgorithm;
-use suika_core::otpauth::parse_otpauth_uri;
+use suika_core::otpauth::{parse_otpauth_uri, parse_otpauth_uri_list};
 use suika_core::storage::{StorageError, VaultStore};
 use suika_core::vault::{Vault, VaultSession};
 use zeroize::Zeroizing;
@@ -245,6 +245,41 @@ fn import_otpauth_uri(handle: jlong, encoded_uri: &[u8]) -> Result<(), String> {
         .insert(account)
         .map_err(|error| error.to_string())?;
     persist_candidate(session, candidate)
+}
+
+fn import_otpauth_uri_list(handle: jlong, encoded_export: &[u8]) -> Result<usize, String> {
+    let handle =
+        u64::try_from(handle).map_err(|_| "Native session handle is invalid.".to_owned())?;
+    {
+        let registry = sessions()
+            .lock()
+            .map_err(|_| "Native session registry is unavailable.".to_owned())?;
+        if !registry.contains_key(&handle) {
+            return Err("The native vault session is no longer active.".to_owned());
+        }
+    }
+
+    let imported = parse_otpauth_uri_list(encoded_export).map_err(|error| error.to_string())?;
+    let imported_count = imported.len();
+    let mut registry = sessions()
+        .lock()
+        .map_err(|_| "Native session registry is unavailable.".to_owned())?;
+    let session = registry
+        .get_mut(&handle)
+        .ok_or_else(|| "The native vault session is no longer active.".to_owned())?;
+    let candidate_bytes = session
+        .accounts
+        .encode()
+        .map_err(|error| error.to_string())?;
+    let mut candidate =
+        AccountDatabase::decode(&candidate_bytes).map_err(|error| error.to_string())?;
+    for account in imported {
+        candidate
+            .insert(account)
+            .map_err(|error| error.to_string())?;
+    }
+    persist_candidate(session, candidate)?;
+    Ok(imported_count)
 }
 
 fn import_aegis_file(
@@ -740,6 +775,29 @@ pub extern "system" fn Java_org_suika_suikaauthenticator_NativeBridge_nativeImpo
 }
 
 #[unsafe(no_mangle)]
+pub extern "system" fn Java_org_suika_suikaauthenticator_NativeBridge_nativeImportOtpAuthUriList<
+    'local,
+>(
+    mut unowned_env: EnvUnowned<'local>,
+    _class: JClass<'local>,
+    handle: jlong,
+    encoded_export: JByteArray<'local>,
+) -> jint {
+    unowned_env
+        .with_env(|env| -> jni::errors::Result<jint> {
+            let encoded_export = Zeroizing::new(env.convert_byte_array(&encoded_export)?);
+            match import_otpauth_uri_list(handle, &encoded_export) {
+                Ok(count) => match jint::try_from(count) {
+                    Ok(count) => Ok(count),
+                    Err(_) => throw_state_error(env, "The imported account count is invalid."),
+                },
+                Err(message) => throw_state_error(env, &message),
+            }
+        })
+        .resolve::<ThrowRuntimeExAndDefault>()
+}
+
+#[unsafe(no_mangle)]
 pub extern "system" fn Java_org_suika_suikaauthenticator_NativeBridge_nativeImportAegisExport<
     'local,
 >(
@@ -1080,6 +1138,98 @@ mod tests {
         );
         assert_eq!(restored.accounts()[1].issuer(), "Example");
         assert_eq!(restored.accounts()[1].label(), "backup");
+        assert_eq!(restored.accounts()[1].algorithm(), OtpAlgorithm::Sha512);
+        assert_eq!(
+            restored.accounts()[1].mode(),
+            AccountMode::Hotp { counter: 9 }
+        );
+    }
+
+    #[test]
+    fn uri_list_import_is_transactional_and_persists_totp_and_hotp() {
+        let temporary = TestDirectory::new();
+        let store =
+            VaultStore::open(temporary.0.join(APP_DIRECTORY)).expect("vault store should open");
+        let accounts = AccountDatabase::new();
+        let plaintext = accounts.encode().expect("account database should encode");
+        let params = KdfParams::new(64 * 1024, 1, 1).expect("test KDF profile");
+        let (serialized, vault) = Vault::create_session(&plaintext, b"test password", params)
+            .expect("encrypted vault and unlocked session should be created");
+        store
+            .save_new(&serialized)
+            .expect("initial vault should be saved");
+        let handle = insert_session(NativeSession {
+            store,
+            vault,
+            accounts,
+        })
+        .expect("native session handle should be allocated");
+
+        let secret = "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP";
+        let uri_export = format!(
+            "otpauth://totp/Example:alice?secret={secret}&algorithm=SHA256&digits=8&period=60\n\notpauth://hotp/Backup:token?secret={secret}&counter=9&algorithm=SHA512&digits=7\n"
+        );
+        assert_eq!(
+            import_otpauth_uri_list(handle as jlong, uri_export.as_bytes())
+                .expect("text URI list should import"),
+            2
+        );
+
+        let before_failed_import = {
+            let registry = sessions()
+                .lock()
+                .expect("session registry should remain available");
+            let session = registry
+                .get(&handle)
+                .expect("native session should remain active");
+            assert_eq!(session.accounts.len(), 2);
+            session
+                .store
+                .load()
+                .expect("imported encrypted vault should load")
+        };
+        let invalid_export = format!(
+            "otpauth://totp/Example:partial?secret={secret}\nnot-a-provisioning-uri\n"
+        );
+        assert!(import_otpauth_uri_list(handle as jlong, invalid_export.as_bytes()).is_err());
+        {
+            let registry = sessions()
+                .lock()
+                .expect("session registry should remain available");
+            let session = registry
+                .get(&handle)
+                .expect("session should survive rejected import");
+            assert_eq!(session.accounts.len(), 2);
+            assert_eq!(
+                session.store.load().expect("vault should still load"),
+                before_failed_import,
+                "a malformed URI list must not persist a partial import"
+            );
+        }
+
+        let mut registry = sessions()
+            .lock()
+            .expect("session registry should remain available");
+        let session = registry
+            .remove(&handle)
+            .expect("native session should remain active");
+        let persisted = Vault::unlock(
+            &session.store.load().expect("persisted vault should load"),
+            b"test password",
+        )
+        .expect("persisted vault should unlock");
+        let restored = AccountDatabase::decode(persisted.plaintext())
+            .expect("persisted accounts should decode");
+        assert_eq!(restored.len(), 2);
+        assert_eq!(restored.accounts()[0].issuer(), "Example");
+        assert_eq!(restored.accounts()[0].label(), "alice");
+        assert_eq!(restored.accounts()[0].algorithm(), OtpAlgorithm::Sha256);
+        assert_eq!(
+            restored.accounts()[0].mode(),
+            AccountMode::Totp { period_seconds: 60 }
+        );
+        assert_eq!(restored.accounts()[1].issuer(), "Backup");
+        assert_eq!(restored.accounts()[1].label(), "token");
         assert_eq!(restored.accounts()[1].algorithm(), OtpAlgorithm::Sha512);
         assert_eq!(
             restored.accounts()[1].mode(),

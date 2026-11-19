@@ -9,6 +9,10 @@ use crate::base32::decode_base32;
 use crate::otp::OtpAlgorithm;
 
 const MAX_URI_BYTES: usize = 4096;
+/// Maximum byte length accepted for an imported newline-delimited URI export.
+pub const MAX_OTPAUTH_URI_LIST_BYTES: usize = 16 * 1024 * 1024;
+/// Maximum number of provisioning URIs accepted in one text export.
+pub const MAX_OTPAUTH_URI_LIST_ENTRIES: usize = 10_000;
 const MAX_QUERY_FIELDS: usize = 32;
 const MAX_QUERY_COMPONENT_BYTES: usize = 2048;
 const MIN_SECRET_BYTES: usize = 16;
@@ -45,6 +49,81 @@ impl From<AccountError> for OtpAuthError {
     fn from(error: AccountError) -> Self {
         Self::Account(error)
     }
+}
+
+/// Errors returned while importing a plaintext, newline-delimited URI export.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OtpAuthListError {
+    InputTooLarge,
+    InvalidUtf8,
+    EmptyExport,
+    TooManyEntries,
+    InvalidEntry { line: usize },
+}
+
+impl core::fmt::Display for OtpAuthListError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::InputTooLarge => {
+                f.write_str("The provisioning URI export exceeds the 16 MiB import limit.")
+            }
+            Self::InvalidUtf8 => {
+                f.write_str("The provisioning URI export is not valid UTF-8 text.")
+            }
+            Self::EmptyExport => {
+                f.write_str("The provisioning URI export does not contain any entries.")
+            }
+            Self::TooManyEntries => {
+                f.write_str("The provisioning URI export exceeds the 10,000-entry limit.")
+            }
+            Self::InvalidEntry { line } => write!(
+                f,
+                "The provisioning URI export contains an invalid entry on line {line}."
+            ),
+        }
+    }
+}
+
+impl std::error::Error for OtpAuthListError {}
+
+/// Parse a plaintext text export containing one standard otpauth URI per line.
+///
+/// Empty lines are ignored. Every non-empty line must be a valid bounded TOTP
+/// or HOTP URI; one malformed entry rejects the entire file so import cannot
+/// silently skip tokens. The caller must keep the input bytes in zeroizing
+/// memory and persist the returned accounts transactionally.
+pub fn parse_otpauth_uri_list(input: &[u8]) -> Result<Vec<Account>, OtpAuthListError> {
+    if input.len() > MAX_OTPAUTH_URI_LIST_BYTES {
+        return Err(OtpAuthListError::InputTooLarge);
+    }
+    let text = std::str::from_utf8(input).map_err(|_| OtpAuthListError::InvalidUtf8)?;
+    let text = text.strip_prefix('\u{feff}').unwrap_or(text);
+    let mut accounts = Vec::new();
+
+    for (line_index, line) in text.lines().enumerate() {
+        let uri = line.trim();
+        if uri.is_empty() {
+            continue;
+        }
+        if accounts.len() >= MAX_OTPAUTH_URI_LIST_ENTRIES {
+            return Err(OtpAuthListError::TooManyEntries);
+        }
+        if uri.len() > MAX_URI_BYTES {
+            return Err(OtpAuthListError::InvalidEntry {
+                line: line_index + 1,
+            });
+        }
+        let account = parse_otpauth_uri(uri).map_err(|_| OtpAuthListError::InvalidEntry {
+            line: line_index + 1,
+        })?;
+        accounts.push(account);
+    }
+
+    if accounts.is_empty() {
+        return Err(OtpAuthListError::EmptyExport);
+    }
+
+    Ok(accounts)
 }
 
 /// Parse a standard `otpauth://totp` or `otpauth://hotp` URI into an account.
@@ -349,6 +428,49 @@ mod tests {
         ] {
             assert!(parse_otpauth_uri(uri).is_err(), "unexpectedly parsed {uri}");
         }
+    }
+
+    #[test]
+    fn imports_newline_delimited_totp_and_hotp_uris() {
+        let contents = b"\xef\xbb\xbf\r\notpauth://totp/Example:alice?secret=JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP\r\n\notpauth://hotp/Backup:token?secret=JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP&counter=9&algorithm=SHA512&digits=7\n";
+        let accounts = parse_otpauth_uri_list(contents)
+            .expect("newline-delimited URI export should parse");
+
+        assert_eq!(accounts.len(), 2);
+        assert_eq!(accounts[0].issuer(), "Example");
+        assert_eq!(accounts[0].label(), "alice");
+        assert_eq!(accounts[0].mode(), AccountMode::Totp { period_seconds: 30 });
+        assert_eq!(accounts[1].issuer(), "Backup");
+        assert_eq!(accounts[1].label(), "token");
+        assert_eq!(accounts[1].mode(), AccountMode::Hotp { counter: 9 });
+        assert_eq!(accounts[1].algorithm(), OtpAlgorithm::Sha512);
+        assert_eq!(accounts[1].digits(), 7);
+    }
+
+    #[test]
+    fn rejects_invalid_uri_list_entries_without_partial_results() {
+        let contents = b"otpauth://totp/Example:alice?secret=JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP\nnot-a-uri\n";
+        assert_eq!(
+            parse_otpauth_uri_list(contents).err(),
+            Some(OtpAuthListError::InvalidEntry { line: 2 })
+        );
+        assert_eq!(
+            parse_otpauth_uri_list(b"\n  \r\n").err(),
+            Some(OtpAuthListError::EmptyExport)
+        );
+        assert_eq!(
+            parse_otpauth_uri_list(&[0xff]).err(),
+            Some(OtpAuthListError::InvalidUtf8)
+        );
+    }
+
+    #[test]
+    fn rejects_oversized_uri_list_before_parsing() {
+        let input = vec![b' '; MAX_OTPAUTH_URI_LIST_BYTES + 1];
+        assert_eq!(
+            parse_otpauth_uri_list(&input).err(),
+            Some(OtpAuthListError::InputTooLarge)
+        );
     }
 
     #[test]

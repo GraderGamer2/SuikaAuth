@@ -74,7 +74,7 @@ Status: **Milestone 7 — Encrypted backup and restore (Linux/Android implementa
 - [x] Add offline Android camera QR scanning using CameraX and a bundled ML Kit QR model; request camera permission only when scanning is started. CI builds the Android APK with the camera model dependency.
 - [x] Add local Linux QR image import using GdkPixbuf and the pure-Rust quircs decoder, with image/pixel bounds and single-code validation; the Linux frontend builds in CI.
 - [x] Add offline migration from plaintext and password-encrypted Aegis JSON exports on Linux and Android; preserve standard TOTP/HOTP settings, favorites, and one group mapping, and report unsupported Aegis token types. Tests use Aegis's published plaintext and encrypted examples.
-- [ ] Add migration from other documented authenticator formats.
+- [ ] Add migration from other documented authenticator formats (plaintext Ente Auth / generic newline-delimited `otpauth://` text import is implemented; CI validation pending. Ente's separately encrypted JSON export is not claimed as supported).
 - [x] Validate issuer, account label, Base32 secret encoding and length, algorithm, digits, TOTP period, and HOTP counter during URI import.
 
 ## 7. Encrypted backup and restore

@@ -1,6 +1,21 @@
-# Aegis migration
+# Authenticator migration
 
-SuikaAuthenticator imports Aegis JSON export files locally on Linux and Android. Both frontends use the same Rust importer and save converted entries through the existing encrypted Suika vault. The source file is never changed or uploaded.
+SuikaAuthenticator supports local migration from Aegis JSON exports and plaintext newline-delimited provisioning-URI text exports on Linux and Android. Both frontends validate entries through the shared Rust core and save imported accounts through the existing encrypted Suika vault. Source files are never changed or uploaded.
+
+## Plaintext provisioning-URI text exports
+
+The app imports text exports containing one standard `otpauth://` TOTP or HOTP URI per non-empty line. This supports the documented Ente Auth plaintext export format, as well as compatible URI-list text files from other authenticators.
+
+- UTF-8 text is required. A leading UTF-8 BOM, CRLF/LF line endings, and blank lines are accepted.
+- Every non-empty line must be a valid standard TOTP or HOTP provisioning URI. One invalid line rejects the entire import; the app does not silently skip entries or partially import the file.
+- The existing shared URI parser enforces the 4,096-byte per-URI limit, supported HMAC algorithms, 6–8 digits, Base32 secret length, issuer consistency, and TOTP/HOTP mode parameters.
+- The entire source file is limited to 16 MiB and 10,000 entries.
+- Linux and Android read the selected file into a bounded zeroizing memory buffer. The source file is not modified or deleted.
+- Imported accounts are merged into a candidate account database and persisted only after every line validates and the encrypted vault save succeeds.
+
+**Important:** this is a plaintext export format. The text file contains the OTP provisioning URIs, including secret keys. Import only from a trusted location and securely delete the plaintext file after verifying the migration. SuikaAuthenticator does not currently import Ente's separately encrypted JSON export; that format requires its own documented container and key-derivation implementation and is not treated as a URI-list text file.
+
+Upstream references: [Ente Auth migration/export documentation](https://github.com/ente-io/ente/blob/main/docs/docs/auth/migration/export.md) and [Ente CLI authentication export](https://ente.com/help/cli/auth).
 
 ## Supported Aegis exports
 

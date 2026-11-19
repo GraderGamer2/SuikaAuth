@@ -27,7 +27,9 @@ use suika_core::backup::{Backup, MAX_BACKUP_FILE_BYTES};
 use suika_core::base32::decode_base32;
 use suika_core::crypto::KdfParams;
 use suika_core::otp::OtpAlgorithm;
-use suika_core::otpauth::{OtpAuthError, parse_otpauth_uri};
+use suika_core::otpauth::{
+    MAX_OTPAUTH_URI_LIST_BYTES, OtpAuthError, parse_otpauth_uri, parse_otpauth_uri_list,
+};
 use suika_core::storage::{StorageError, VaultStore};
 use suika_core::vault::{Vault, VaultError, VaultSession};
 use zeroize::Zeroizing;
@@ -1332,6 +1334,228 @@ fn persist_aegis_import(
     Ok((imported_count, skipped))
 }
 
+fn show_otpauth_uri_list_import_page(
+    stack: &Stack,
+    window: &ApplicationWindow,
+    directory: PathBuf,
+    unlocked: Rc<RefCell<Option<AuthenticatedVault>>>,
+    path: PathBuf,
+) {
+    let page = GtkBox::new(Orientation::Vertical, 14);
+    page.set_margin_top(28);
+    page.set_margin_bottom(28);
+    page.set_margin_start(28);
+    page.set_margin_end(28);
+
+    let title = Label::new(Some("Import plaintext URI list"));
+    title.add_css_class("title-1");
+    title.set_xalign(0.0);
+    let description = Label::new(Some(
+        "Import a plaintext text export containing one otpauth:// URI per line, including Ente Auth plaintext exports. All non-empty lines must be valid TOTP/HOTP provisioning URIs. The source file is not modified and contains unencrypted secret keys; import only trusted files and delete the source when no longer needed.",
+    ));
+    description.set_wrap(true);
+    description.set_xalign(0.0);
+    description.add_css_class("dim-label");
+
+    let filename = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("text export");
+    let file_label = Label::new(Some(&format!("Selected file: {filename}")));
+    file_label.set_xalign(0.0);
+    file_label.set_ellipsize(gtk::pango::EllipsizeMode::Middle);
+
+    let status = Label::new(Some("The selected file is read locally and held in memory only."));
+    status.set_wrap(true);
+    status.set_xalign(0.0);
+    let buttons = GtkBox::new(Orientation::Horizontal, 8);
+    let cancel = Button::with_label("Cancel");
+    let import = Button::with_label("Import accounts");
+    import.add_css_class("suggested-action");
+    import.set_hexpand(true);
+    buttons.append(&cancel);
+    buttons.append(&import);
+
+    page.append(&title);
+    page.append(&description);
+    page.append(&file_label);
+    page.append(&status);
+    page.append(&buttons);
+
+    let stack_weak = stack.downgrade();
+    let window_weak = window.downgrade();
+    let directory_for_cancel = directory.clone();
+    let unlocked_for_cancel = unlocked.clone();
+    cancel.connect_clicked(move |_| {
+        if let (Some(stack), Some(window)) = (stack_weak.upgrade(), window_weak.upgrade()) {
+            show_accounts_page(
+                &stack,
+                &window,
+                directory_for_cancel.clone(),
+                unlocked_for_cancel.clone(),
+            );
+        }
+    });
+
+    let status_for_import = status.clone();
+    let import_for_import = import.clone();
+    let directory_for_import = directory.clone();
+    let unlocked_for_import = unlocked.clone();
+    let stack_weak = stack.downgrade();
+    let window_weak = window.downgrade();
+    import.connect_clicked(move |_| {
+        import_for_import.set_sensitive(false);
+        cancel.set_sensitive(false);
+        status_for_import.set_text("Reading and validating every provisioning URI…");
+
+        let path = path.clone();
+        let (sender, receiver) = mpsc::sync_channel(1);
+        let worker = thread::Builder::new()
+            .name("suika-uri-list-import".to_owned())
+            .spawn(move || {
+                let result = load_otpauth_uri_list(&path);
+                let _ = sender.send(result);
+            });
+        if let Err(error) = worker {
+            import_for_import.set_sensitive(true);
+            cancel.set_sensitive(true);
+            status_for_import.set_text(&format!("Could not start the import worker: {error}"));
+            return;
+        }
+
+        let status_for_completion = status_for_import.clone();
+        let import_for_completion = import_for_import.clone();
+        let cancel_for_completion = cancel.clone();
+        let directory_for_completion = directory_for_import.clone();
+        let unlocked_for_completion = unlocked_for_import.clone();
+        let stack_for_completion = stack_weak.clone();
+        let window_for_completion = window_weak.clone();
+        glib::source::timeout_add_local(Duration::from_millis(100), move || {
+            match receiver.try_recv() {
+                Ok(result) => {
+                    import_for_completion.set_sensitive(true);
+                    cancel_for_completion.set_sensitive(true);
+                    match result {
+                        Ok(imported_accounts) => {
+                            match persist_otpauth_uri_list(
+                                &unlocked_for_completion,
+                                &directory_for_completion,
+                                imported_accounts,
+                            ) {
+                                Ok(imported) => {
+                                    if let (Some(stack), Some(window)) = (
+                                        stack_for_completion.upgrade(),
+                                        window_for_completion.upgrade(),
+                                    ) {
+                                        show_accounts_page(
+                                            &stack,
+                                            &window,
+                                            directory_for_completion.clone(),
+                                            unlocked_for_completion.clone(),
+                                        );
+                                        show_message_dialog(
+                                            &window,
+                                            "URI-list import complete",
+                                            &format!(
+                                                "Imported {imported} account(s) into the encrypted vault. The plaintext source file was not changed; delete it when no longer needed."
+                                            ),
+                                        );
+                                    }
+                                }
+                                Err(message) => status_for_completion.set_text(&message),
+                            }
+                        }
+                        Err(message) => status_for_completion.set_text(&message),
+                    }
+                    ControlFlow::Break
+                }
+                Err(TryRecvError::Empty) => ControlFlow::Continue,
+                Err(TryRecvError::Disconnected) => {
+                    import_for_completion.set_sensitive(true);
+                    cancel_for_completion.set_sensitive(true);
+                    status_for_completion.set_text(
+                        "The plaintext URI-list import worker stopped unexpectedly.",
+                    );
+                    ControlFlow::Break
+                }
+            }
+        });
+    });
+
+    replace_page(stack, "uri-list-import", &page);
+}
+
+fn load_otpauth_uri_list(path: &Path) -> Result<Vec<Account>, String> {
+    let maximum_bytes = u64::try_from(MAX_OTPAUTH_URI_LIST_BYTES)
+        .map_err(|_| "The URI-list size limit is invalid.".to_owned())?;
+    let metadata = fs::metadata(path)
+        .map_err(|_| "The selected plaintext URI export could not be opened.")?;
+    if !metadata.is_file() || metadata.len() > maximum_bytes {
+        return Err("Choose a regular plaintext URI export no larger than 16 MiB.".to_owned());
+    }
+    let capacity = usize::try_from(metadata.len())
+        .map_err(|_| "The selected URI export size is invalid.".to_owned())?;
+    let read_limit = metadata
+        .len()
+        .checked_add(1)
+        .ok_or_else(|| "The selected URI export size is invalid.".to_owned())?;
+    let file = fs::File::open(path)
+        .map_err(|_| "The selected plaintext URI export could not be read.")?;
+    let mut input = Zeroizing::new(Vec::with_capacity(capacity));
+    let bytes_read = file
+        .take(read_limit)
+        .read_to_end(&mut input)
+        .map_err(|_| "The selected plaintext URI export could not be read.")?;
+    if bytes_read as u64 != metadata.len() {
+        return Err("The selected plaintext URI export changed while it was being read.".to_owned());
+    }
+    parse_otpauth_uri_list(&input).map_err(|error| error.to_string())
+}
+
+fn persist_otpauth_uri_list(
+    unlocked: &Rc<RefCell<Option<AuthenticatedVault>>>,
+    directory: &Path,
+    imported: Vec<Account>,
+) -> Result<usize, String> {
+    let imported_count = imported.len();
+    if imported_count == 0 {
+        return Err("The plaintext URI export does not contain any accounts.".to_owned());
+    }
+
+    let mut guard = unlocked.borrow_mut();
+    let vault = guard
+        .as_mut()
+        .ok_or_else(|| "The vault is locked. Unlock it before importing accounts.".to_owned())?;
+    let existing = vault.accounts.encode().map_err(|error| error.to_string())?;
+    let mut candidate = AccountDatabase::decode(&existing).map_err(|error| error.to_string())?;
+    for account in imported {
+        candidate.insert(account).map_err(|error| error.to_string())?;
+    }
+
+    let store = VaultStore::open(directory).map_err(|error| error.to_string())?;
+    let candidate_plaintext = candidate.encode().map_err(|error| error.to_string())?;
+    let previous_plaintext = Zeroizing::new(vault.session.plaintext().to_vec());
+    vault
+        .session
+        .replace_plaintext(candidate_plaintext)
+        .map_err(|error| error.to_string())?;
+
+    let encrypted = match vault.session.seal_current() {
+        Ok(encrypted) => encrypted,
+        Err(error) => {
+            let _ = vault.session.replace_plaintext(previous_plaintext);
+            return Err(error.to_string());
+        }
+    };
+    if let Err(error) = store.save(&encrypted) {
+        let _ = vault.session.replace_plaintext(previous_plaintext);
+        return Err(error.to_string());
+    }
+
+    vault.accounts = candidate;
+    Ok(imported_count)
+}
+
 fn show_backup_export_page(
     stack: &Stack,
     window: &ApplicationWindow,
@@ -2340,6 +2564,7 @@ fn show_accounts_page(
         "add-account",
         "edit-account",
         "aegis-import",
+        "uri-list-import",
         "backup-export",
         "backup-restore",
     ] {
@@ -2425,6 +2650,50 @@ fn show_accounts_page(
             });
         }
     });
+
+    let import_uri_list = Button::with_label("Import URI list");
+    let stack_for_uri_list = stack.downgrade();
+    let window_for_uri_list = window.downgrade();
+    let directory_for_uri_list = directory.clone();
+    let unlocked_for_uri_list = unlocked.clone();
+    import_uri_list.connect_clicked(move |_| {
+        let file_dialog = gtk::FileDialog::builder()
+            .title("Import plaintext URI list")
+            .accept_label("Open")
+            .modal(true)
+            .build();
+        let stack_weak = stack_for_uri_list.clone();
+        let window_weak = window_for_uri_list.clone();
+        let directory_for_file = directory_for_uri_list.clone();
+        let unlocked_for_file = unlocked_for_uri_list.clone();
+        if let Some(parent) = window_for_uri_list.upgrade() {
+            file_dialog.open(Some(&parent), None::<&gio::Cancellable>, move |result| {
+                let Ok(file) = result else {
+                    return;
+                };
+                let Some(path) = file.path() else {
+                    if let Some(window) = window_weak.upgrade() {
+                        show_message_dialog(
+                            &window,
+                            "Import unavailable",
+                            "Choose a local plaintext URI-list export.",
+                        );
+                    }
+                    return;
+                };
+                if let (Some(stack), Some(window)) = (stack_weak.upgrade(), window_weak.upgrade()) {
+                    show_otpauth_uri_list_import_page(
+                        &stack,
+                        &window,
+                        directory_for_file.clone(),
+                        unlocked_for_file.clone(),
+                        path,
+                    );
+                }
+            });
+        }
+    });
+    header.append(&import_uri_list);
 
     let backup_actions = GtkBox::new(Orientation::Horizontal, 8);
     let create_backup = Button::with_label("Create encrypted backup");
