@@ -650,7 +650,7 @@ mod tests {
             let registry = sessions()
                 .lock()
                 .expect("session registry should remain available");
-            let account = registry
+            let account = &registry
                 .get(&handle)
                 .expect("native session should remain active")
                 .accounts
@@ -680,7 +680,7 @@ mod tests {
             let registry = sessions()
                 .lock()
                 .expect("session registry should remain available");
-            let account = registry
+            let account = &registry
                 .get(&handle)
                 .expect("native session should remain active")
                 .accounts
