@@ -28,6 +28,8 @@ References: [AGP 9.6.0 compatibility notes](https://developer.android.com/build/
 
 ## Rust/Kotlin boundary
 
+- Native bridge returns a Java boolean for vault existence checks and uses JNI modified-UTF8 exception strings.
+
 The first Android vertical slice exposes a narrow JNI API for vault existence checks, vault creation, password unlock, account listing, TOTP enrollment, and explicit session locking. The bridge exposes only display metadata and generated codes, never raw account secrets. The API will be extended as account management is brought to parity with Linux.
 
 The planned full JNI API covers:

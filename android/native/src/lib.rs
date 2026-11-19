@@ -10,6 +10,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use jni::errors::ThrowRuntimeExAndDefault;
 use jni::objects::{JByteArray, JClass, JObjectArray, JString};
+use jni::strings::JNIString;
 use jni::sys::{jboolean, jint, jlong, jobjectArray};
 use jni::{Env, EnvUnowned};
 use suika_core::accounts::{Account, AccountDatabase, AccountMode};
@@ -176,7 +177,9 @@ fn list_account_fields(handle: jlong) -> Result<Vec<String>, String> {
 }
 
 fn throw_state_error<T: Default>(env: &mut Env<'_>, message: &str) -> jni::errors::Result<T> {
-    env.throw_new("java/lang/IllegalStateException", message)?;
+    let class = jni::jni_str!("java/lang/IllegalStateException");
+    let message = JNIString::new(message);
+    env.throw_new(class, &message)?;
     Ok(T::default())
 }
 
@@ -187,8 +190,8 @@ pub extern "system" fn Java_org_suika_suikaauthenticator_NativeBridge_nativeHasV
     unowned_env.with_env(|env| -> jni::errors::Result<jboolean> {
         let root = root.try_to_string(env)?;
         match vault_exists(&root) {
-            Ok(true) => Ok(1),
-            Ok(false) => Ok(0),
+            Ok(true) => Ok(true),
+            Ok(false) => Ok(false),
             Err(message) => throw_state_error(env, &message),
         }
     }).resolve::<ThrowRuntimeExAndDefault>()

@@ -3,6 +3,7 @@
 All notable project changes will be recorded here.
 
 ## Unreleased
+- Corrected `jni` 0.22.4 exception-string and `jboolean` API usage, and made both NDK environment variables point to the pinned 28.2.13676358 installation during Android cross-compilation.
 - Switched the initial Android compile/target SDK to API 36 after CI confirmed the runner package feed does not yet publish platforms;android-37. AGP remains pinned at 9.6.0.
 - Added the first native Android application using platform Views and a separate Rust JNI Cargo workspace. The initial screen supports encrypted-vault creation/unlock, TOTP account listing/enrollment, explicit lock, background lock, and five-minute inactivity lock.
 - Added Android JNI build steps for arm64-v8a and x86_64 using pinned AGP 9.6.0 / Gradle 9.8.2 / NDK 28.2.13676358 / cargo-ndk 4.1.2.
