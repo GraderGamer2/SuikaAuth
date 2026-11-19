@@ -28,7 +28,7 @@ References: [Android Gradle Plugin API reference (current stable version)](https
 
 ## Rust/Kotlin boundary
 
-- Native bridge returns a Java boolean for vault existence checks and uses JNI modified-UTF8 exception strings.
+The native bridge returns a Java boolean for vault-existence checks and uses JNI exception strings.
 
 The initial Android vertical slice exposes a narrow JNI API for vault existence checks, vault creation, password unlock, account listing, TOTP enrollment, HOTP code consumption, and explicit session locking. HOTP codes are returned only after the counter increment has been encrypted and durably saved. The bridge exposes only display metadata and generated codes, never raw account secrets.
 
