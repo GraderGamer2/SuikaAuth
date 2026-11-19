@@ -33,7 +33,7 @@ class MainActivity : Activity() {
     private val worker: ExecutorService = Executors.newSingleThreadExecutor()
     private val handler = Handler(Looper.getMainLooper())
     private val inactivityTimeoutMs = 5 * 60 * 1000L
-    private val backgroundLock = Runnable { lockSession(showAuthentication = false) }
+    private val backgroundLock = Runnable { lockSession(showAuthentication = true) }
     private var backgroundLockTimeoutMs = 0L
     private var activeHandle: Long? = null
     private var vaultExists: Boolean? = null
@@ -109,7 +109,7 @@ class MainActivity : Activity() {
         handler.removeCallbacks(inactivityLock)
         if (activeHandle != null) {
             if (backgroundLockTimeoutMs == 0L) {
-                lockSession(showAuthentication = false)
+                lockSession(showAuthentication = true)
             } else {
                 handler.removeCallbacks(backgroundLock)
                 handler.postDelayed(backgroundLock, backgroundLockTimeoutMs)

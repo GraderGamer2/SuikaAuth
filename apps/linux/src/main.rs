@@ -1046,7 +1046,7 @@ fn show_edit_account_page(
     let mode_selection = if mode_value == "TOTP" { 0 } else { 1 };
     let (mode, _mode_field) =
         labeled_dropdown(&page, "OTP mode", &["TOTP", "HOTP"], mode_selection);
-    let algorithm_selection = match algorithm_value.as_str() {
+    let algorithm_selection = match algorithm_value {
         "SHA1" => 0,
         "SHA256" => 1,
         "SHA512" => 2,
