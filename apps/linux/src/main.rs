@@ -545,11 +545,7 @@ fn authenticate(
     }
 }
 
-fn labeled_entry_field(
-    parent: &GtkBox,
-    label_text: &str,
-    placeholder: &str,
-) -> (GtkBox, Entry) {
+fn labeled_entry_field(parent: &GtkBox, label_text: &str, placeholder: &str) -> (GtkBox, Entry) {
     let field = GtkBox::new(Orientation::Vertical, 4);
     let label = Label::new(Some(label_text));
     label.set_xalign(0.0);
@@ -688,20 +684,23 @@ fn show_add_account_page(
     secret.set_widget_name("suika-secret-entry");
     secret.set_max_length(208);
 
-    let (mode, _mode_field) =
-        labeled_dropdown(&page, "OTP mode", &["TOTP", "HOTP"], 0);
-    let (algorithm, _algorithm_field) = labeled_dropdown(
-        &page,
-        "HMAC algorithm",
-        &["SHA1", "SHA256", "SHA512"],
-        0,
-    );
-    let (digits, _digits_field) =
-        labeled_dropdown(&page, "Code digits", &["6", "7", "8"], 0);
+    let (mode, _mode_field) = labeled_dropdown(&page, "OTP mode", &["TOTP", "HOTP"], 0);
+    let (algorithm, _algorithm_field) =
+        labeled_dropdown(&page, "HMAC algorithm", &["SHA1", "SHA256", "SHA512"], 0);
+    let (digits, _digits_field) = labeled_dropdown(&page, "Code digits", &["6", "7", "8"], 0);
     let (period, period_field) = labeled_dropdown(
         &page,
         "TOTP period",
-        &["15 seconds", "30 seconds", "45 seconds", "60 seconds", "90 seconds", "120 seconds", "300 seconds", "Custom…"],
+        &[
+            "15 seconds",
+            "30 seconds",
+            "45 seconds",
+            "60 seconds",
+            "90 seconds",
+            "120 seconds",
+            "300 seconds",
+            "Custom…",
+        ],
         1,
     );
     let (counter, counter_field) = labeled_dropdown(
@@ -1068,7 +1067,16 @@ fn show_edit_account_page(
     let (period, period_field) = labeled_dropdown(
         &page,
         "TOTP period",
-        &["15 seconds", "30 seconds", "45 seconds", "60 seconds", "90 seconds", "120 seconds", "300 seconds", "Custom…"],
+        &[
+            "15 seconds",
+            "30 seconds",
+            "45 seconds",
+            "60 seconds",
+            "90 seconds",
+            "120 seconds",
+            "300 seconds",
+            "Custom…",
+        ],
         period_selection,
     );
     let counter_selection = HOTP_COUNTER_PRESETS
