@@ -55,12 +55,13 @@ Status: **Milestone 5 — Android native frontend (initial vertical slice)**
 ## 5. Android application
 
 - [x] Add the initial native Kotlin Android frontend using platform Views (no Compose/WebView).
-- [x] Integrate vault creation, password unlock, TOTP account listing/enrollment, and explicit session drop through an isolated JNI crate.
+- [x] Integrate vault creation, password unlock, TOTP listing/enrollment, HOTP consumption, and explicit session drop through an isolated JNI crate.
+- [x] Persist HOTP counter advancement before returning a code for copying.
 - [x] Store the Android vault under one noBackupFilesDir/SuikaAuthenticator/ root.
-- [x] Add five-minute inactivity locking and foreground/background session cleanup in the initial Android screen.
-- [ ] Complete account editing/removal, HOTP handling, search parity, and broader lifecycle hardening.
+- [x] Add five-minute inactivity locking, foreground/background session cleanup, and local issuer/account search.
+- [x] Build and validate installable debug APKs for arm64-v8a and x86_64 in CI.
+- [ ] Complete account editing/removal and broader lifecycle hardening.
 - [ ] Add Android Keystore / BiometricPrompt device-bound DEK unlock and enrollment-change handling.
-- [ ] Build and validate an installable debug APK in CI.
 
 ## 6. Enrollment and migration
 

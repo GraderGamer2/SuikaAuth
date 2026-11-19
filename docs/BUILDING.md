@@ -27,7 +27,7 @@ The Linux package will produce the suika-authenticator executable. The Android G
 
 Workflow: .github/workflows/build.yml
 
-Triggers include relevant source pushes to main, pull requests, and manual runs. The Linux job runs Rust formatting, locked workspace tests, locked Clippy, locked dependency feature-tree inspection, and the optimized native executable build. The Linux and Android jobs are configured for real builds. The Android job installs pinned SDK/NDK packages, cross-compiles the JNI library with cargo-ndk, and assembles the debug APK with Gradle 9.6.0.
+Triggers include relevant source pushes to main, pull requests, and manual runs. The Linux job runs Rust formatting, locked workspace tests, locked Clippy, locked dependency feature-tree inspection, and the optimized native executable build. The Linux and Android jobs are configured for real builds. The Android job checks the independent JNI crate's formatting, tests, and strict Clippy; installs pinned SDK/NDK packages; cross-compiles both ABIs with cargo-ndk; and assembles the debug APK with Gradle 9.6.0. The successful debug artifact includes the Android JNI Cargo.lock.
 
 ## Artifact names and retention
 

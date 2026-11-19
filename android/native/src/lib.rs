@@ -151,6 +151,58 @@ fn add_totp(
     persist_candidate(session, candidate)
 }
 
+fn parse_account_id(encoded: &str) -> Result<[u8; 16], String> {
+    let bytes = encoded.as_bytes();
+    if bytes.len() != 32 {
+        return Err("The account identifier is invalid.".to_owned());
+    }
+
+    let mut id = [0_u8; 16];
+    for (index, pair) in bytes.chunks_exact(2).enumerate() {
+        let high = hex_nibble(pair[0]).ok_or_else(|| "The account identifier is invalid.".to_owned())?;
+        let low = hex_nibble(pair[1]).ok_or_else(|| "The account identifier is invalid.".to_owned())?;
+        id[index] = (high << 4) | low;
+    }
+    Ok(id)
+}
+
+fn hex_nibble(value: u8) -> Option<u8> {
+    match value {
+        b'0'..=b'9' => Some(value - b'0'),
+        b'a'..=b'f' => Some(value - b'a' + 10),
+        b'A'..=b'F' => Some(value - b'A' + 10),
+        _ => None,
+    }
+}
+
+/// Consume an HOTP code only after its incremented counter is encrypted and committed.
+fn consume_hotp(handle: jlong, encoded_id: &str) -> Result<String, String> {
+    let handle = u64::try_from(handle).map_err(|_| "Native session handle is invalid.".to_owned())?;
+    let account_id = parse_account_id(encoded_id)?;
+    let mut registry = sessions().lock()
+        .map_err(|_| "Native session registry is unavailable.".to_owned())?;
+    let session = registry.get_mut(&handle)
+        .ok_or_else(|| "The native vault session is no longer active.".to_owned())?;
+
+    let candidate_bytes = session.accounts.encode().map_err(|error| error.to_string())?;
+    let mut candidate = AccountDatabase::decode(&candidate_bytes).map_err(|error| error.to_string())?;
+
+    let code = {
+        let account = candidate.get_mut(&account_id)
+            .ok_or_else(|| "The authenticator account no longer exists.".to_owned())?;
+        if !matches!(account.mode(), AccountMode::Hotp { .. }) {
+            return Err("This account does not use HOTP.".to_owned());
+        }
+        let code = account.generate_code(0).map_err(|error| error.to_string())?;
+        account.advance_hotp_counter().map_err(|error| error.to_string())?;
+        code
+    };
+
+    // Do not expose the one-time value until the next counter is safely saved.
+    persist_candidate(session, candidate)?;
+    Ok(code)
+}
+
 fn list_account_fields(handle: jlong) -> Result<Vec<String>, String> {
     let handle = u64::try_from(handle).map_err(|_| "Native session handle is invalid.".to_owned())?;
     let registry = sessions().lock()
@@ -162,10 +214,15 @@ fn list_account_fields(handle: jlong) -> Result<Vec<String>, String> {
     let mut fields = Vec::with_capacity(session.accounts.len().saturating_mul(5));
     for account in session.accounts.accounts() {
         let id = account.id().iter().map(|byte| format!("{byte:02x}")).collect::<String>();
-        let code = account.generate_code(timestamp).map_err(|error| error.to_string())?;
-        let kind = match account.mode() {
-            AccountMode::Totp { period_seconds } => format!("TOTP · {period_seconds}s"),
-            AccountMode::Hotp { counter } => format!("HOTP · counter {counter}"),
+        let (code, kind) = match account.mode() {
+            AccountMode::Totp { period_seconds } => (
+                account.generate_code(timestamp).map_err(|error| error.to_string())?,
+                format!("TOTP · {period_seconds}s"),
+            ),
+            AccountMode::Hotp { counter } => (
+                String::new(),
+                format!("HOTP · tap to generate · counter {counter}"),
+            ),
         };
         fields.push(id);
         fields.push(account.issuer().to_owned());
@@ -282,3 +339,89 @@ pub extern "system" fn Java_org_suika_suikaauthenticator_NativeBridge_nativeAddT
         }
     }).resolve::<ThrowRuntimeExAndDefault>()
 }
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_org_suika_suikaauthenticator_NativeBridge_nativeConsumeHotp<'local>(
+    mut unowned_env: EnvUnowned<'local>,
+    _class: JClass<'local>,
+    handle: jlong,
+    account_id: JString<'local>,
+) -> jni::sys::jstring {
+    unowned_env.with_env(|env| -> jni::errors::Result<jni::sys::jstring> {
+        let account_id = account_id.try_to_string(env)?;
+        match consume_hotp(handle, &account_id) {
+            Ok(code) => Ok(JString::from_str(env, &code)?.into_raw()),
+            Err(message) => throw_state_error(env, &message),
+        }
+    }).resolve::<ThrowRuntimeExAndDefault>()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    struct TestDirectory(PathBuf);
+
+    impl TestDirectory {
+        fn new() -> Self {
+            let mut random = [0_u8; 12];
+            getrandom::fill(&mut random).expect("system CSPRNG should be available");
+            let suffix = random.iter().map(|byte| format!("{byte:02x}")).collect::<String>();
+            let path = std::env::temp_dir().join(format!("suika-android-native-test-{suffix}"));
+            fs::create_dir(&path).expect("test directory should be created");
+            Self(path)
+        }
+    }
+
+    impl Drop for TestDirectory {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn hotp_is_returned_only_after_the_next_counter_is_persisted() {
+        let temporary = TestDirectory::new();
+        let store = VaultStore::open(temporary.0.join(APP_DIRECTORY))
+            .expect("vault store should open");
+        let mut accounts = AccountDatabase::new();
+        let account = Account::new_hotp(
+            "RFC 4226",
+            "test account",
+            Zeroizing::new(b"12345678901234567890".to_vec()),
+            OtpAlgorithm::Sha1,
+            6,
+            0,
+        ).expect("HOTP account should be valid");
+        let account_id = account.id().iter().map(|byte| format!("{byte:02x}")).collect::<String>();
+        accounts.insert(account).expect("HOTP account should insert");
+
+        let plaintext = accounts.encode().expect("account database should encode");
+        let params = KdfParams::new(64 * 1024, 1, 1).expect("test KDF profile");
+        let (serialized, vault) = Vault::create_session(&plaintext, b"test password", params)
+            .expect("encrypted vault and unlocked session should be created");
+        store.save_new(&serialized).expect("initial vault should be saved");
+
+        let handle = insert_session(NativeSession { store, vault, accounts })
+            .expect("native session handle should be allocated");
+        let first = consume_hotp(handle as jlong, &account_id).expect("first HOTP should persist");
+        let second = consume_hotp(handle as jlong, &account_id).expect("second HOTP should persist");
+        assert_eq!(first, "755224");
+        assert_eq!(second, "287082");
+
+        let mut registry = sessions().lock().expect("session registry should remain available");
+        let session = registry.remove(&handle).expect("test session should still exist");
+        let persisted = Vault::unlock(
+            &session.store.load().expect("updated encrypted vault should load"),
+            b"test password",
+        ).expect("updated vault should unlock");
+        let persisted_accounts = AccountDatabase::decode(persisted.plaintext())
+            .expect("persisted account database should decode");
+        assert_eq!(
+            persisted_accounts.accounts()[0].generate_code(0).expect("next HOTP code"),
+            "359152"
+        );
+    }
+}
+

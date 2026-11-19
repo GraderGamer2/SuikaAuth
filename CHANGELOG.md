@@ -3,6 +3,9 @@
 All notable project changes will be recorded here.
 
 ## Unreleased
+- Added safe Android HOTP consumption: the native bridge advances the counter, encrypts and commits the updated vault, and only then returns the code for clipboard use. HOTP accounts are no longer exposed as copyable stale codes in the account list.
+- Added an RFC 4226 persistence test for sequential HOTP consumption, plus Android JNI formatting, unit-test, and strict Clippy gates. CI also packages the independent Android Cargo.lock with the debug APK artifact.
+- Validated the first Android debug APK for arm64-v8a and x86_64 with stable AGP 9.4.1 / Gradle 9.6.0; run #56 passed both Android and Linux jobs.
 - Replaced the unresolvable AGP 9.6.0 preview pin with current stable AGP 9.4.1 and its compatible Gradle 9.6.0 release; retained API 36, Build Tools 36.0.0, NDK 28.2.13676358, and JDK 17.
 - Corrected `jni` 0.22.4 exception-string and `jboolean` API usage, and made both NDK environment variables point to the pinned 28.2.13676358 installation during Android cross-compilation.
 - Switched the initial Android compile/target SDK to API 36 after CI confirmed the runner package feed does not yet publish platforms;android-37. the stable AGP baseline is 9.4.1.

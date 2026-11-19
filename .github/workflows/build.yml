@@ -174,6 +174,18 @@ jobs:
           toolchain: stable
           cache: true
 
+      - name: Check Android JNI formatting
+        if: steps.detect.outputs.ready == 'true'
+        run: cargo fmt --manifest-path android/native/Cargo.toml --all -- --check
+
+      - name: Test Android JNI bridge
+        if: steps.detect.outputs.ready == 'true'
+        run: cargo test --manifest-path android/native/Cargo.toml
+
+      - name: Run Android JNI Clippy
+        if: steps.detect.outputs.ready == 'true'
+        run: cargo clippy --manifest-path android/native/Cargo.toml --all-targets -- -D warnings
+
       - name: Install cargo-ndk
         if: steps.detect.outputs.ready == 'true'
         run: cargo install cargo-ndk --version 4.1.2 --locked
@@ -187,7 +199,7 @@ jobs:
           rustup target add aarch64-linux-android x86_64-linux-android
           cargo ndk -t arm64-v8a -t x86_64 \
             -o android/app/src/main/jniLibs \
-            build --release --manifest-path android/native/Cargo.toml
+            build --locked --release --manifest-path android/native/Cargo.toml
 
       - name: Set up Gradle 9.6.0
         if: steps.detect.outputs.ready == 'true'
@@ -204,6 +216,7 @@ jobs:
         shell: bash
         run: |
           install -D -m 0644 android/app/build/outputs/apk/debug/app-debug.apk dist/SuikaAuthenticator-android-debug.apk
+          install -D -m 0644 android/native/Cargo.lock dist/android-native-Cargo.lock
           printf 'SuikaAuthenticator Android debug APK\nCommit: %s\n' "$GITHUB_SHA" > dist/BUILD-INFO.txt
           sha256sum dist/SuikaAuthenticator-android-debug.apk > dist/SHA256SUMS.txt
 

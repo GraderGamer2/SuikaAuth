@@ -25,4 +25,5 @@ final class NativeBridge {
         int digits,
         long periodSeconds
     );
+    static native String nativeConsumeHotp(long sessionHandle, String accountIdHex);
 }

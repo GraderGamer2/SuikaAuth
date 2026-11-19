@@ -31,6 +31,7 @@ class MainActivity : Activity() {
     private var activeHandle: Long? = null
     private var vaultExists: Boolean? = null
     private var isRefreshing = false
+    private val pendingHotp = mutableSetOf<String>()
 
     private lateinit var content: LinearLayout
     private lateinit var status: TextView
@@ -258,6 +259,7 @@ class MainActivity : Activity() {
 
     private fun renderAccounts(fields: Array<String>) {
         if (!::accountList.isInitialized) return
+        val handle = activeHandle ?: return
         accountList.removeAllViews()
         val filter = if (::searchInput.isInitialized) searchInput.text.toString().trim() else ""
         val rows = fields.toList().chunked(5).filter { row ->
@@ -276,6 +278,7 @@ class MainActivity : Activity() {
         }
 
         rows.forEach { row ->
+            val accountId = row[0]
             val issuer = row[1]
             val label = row[2]
             val code = row[3]
@@ -291,9 +294,9 @@ class MainActivity : Activity() {
                 setTextColor(0xFF202124.toInt())
             }
             val value = TextView(this).apply {
-                text = code.chunked(3).joinToString(" ")
-                textSize = 25f
-                typeface = Typeface.MONOSPACE
+                text = if (code.isBlank()) "Tap to generate next code" else code.chunked(3).joinToString(" ")
+                textSize = if (code.isBlank()) 14f else 25f
+                typeface = if (code.isBlank()) Typeface.DEFAULT else Typeface.MONOSPACE
                 setTextColor(0xFF202124.toInt())
                 setPadding(0, dp(8), 0, dp(4))
             }
@@ -305,8 +308,27 @@ class MainActivity : Activity() {
             card.addView(title)
             card.addView(value)
             card.addView(type)
-            card.setOnClickListener { copyCode(code, label) }
+            card.setOnClickListener {
+                if (kind.startsWith("HOTP")) consumeAndCopyHotp(handle, accountId, label)
+                else copyCode(code, label)
+            }
             accountList.addView(card, matchWidthWrapHeight().apply { bottomMargin = dp(10) })
+        }
+    }
+
+    private fun consumeAndCopyHotp(handle: Long, accountId: String, label: String) {
+        if (!pendingHotp.add(accountId)) return
+        worker.execute {
+            val result = runCatching { NativeBridge.nativeConsumeHotp(handle, accountId) }
+            runOnUiThread {
+                pendingHotp.remove(accountId)
+                if (activeHandle == handle) {
+                    result.onSuccess { code ->
+                        copyCode(code, label)
+                        refreshAccountsNow()
+                    }.onFailure { showError(it) }
+                }
+            }
         }
     }
 
