@@ -107,8 +107,8 @@ fn build_application(application: &Application) {
     let window = ApplicationWindow::builder()
         .application(application)
         .title("SuikaAuthenticator")
-        .default_width(560)
-        .default_height(680)
+        .default_width(940)
+        .default_height(660)
         .build();
 
     let unlocked = Rc::new(RefCell::new(None::<AuthenticatedVault>));
@@ -2181,12 +2181,6 @@ fn advance_hotp_and_persist(
     Ok((used_code, next_code, next_counter))
 }
 
-struct AccountRowWidgets {
-    id: [u8; 16],
-    code: Label,
-    countdown: Label,
-}
-
 fn algorithm_name(algorithm: OtpAlgorithm) -> &'static str {
     match algorithm {
         OtpAlgorithm::Sha1 => "SHA1",
@@ -2593,6 +2587,92 @@ fn confirm_remove_account(
     );
 }
 
+
+fn refresh_selected_account(
+    selected_id: Option<[u8; 16]>,
+    unlocked: &Rc<RefCell<Option<AuthenticatedVault>>>,
+    issuer: &Label,
+    account_label: &Label,
+    code: &Label,
+    countdown: &Label,
+    copy: &Button,
+    advance: &Button,
+    edit: &Button,
+    remove: &Button,
+) {
+    let Some(id) = selected_id else {
+        issuer.set_text("Select an account");
+        account_label.set_text("Choose an account from the list to view its one-time password.");
+        code.set_text("------");
+        countdown.set_text("");
+        copy.set_visible(false);
+        advance.set_visible(false);
+        edit.set_visible(false);
+        remove.set_visible(false);
+        return;
+    };
+
+    let guard = unlocked.borrow();
+    let Some(vault) = guard.as_ref() else {
+        issuer.set_text("Vault locked");
+        account_label.set_text("Unlock the vault to view accounts.");
+        code.set_text("------");
+        countdown.set_text("");
+        copy.set_visible(false);
+        advance.set_visible(false);
+        edit.set_visible(false);
+        remove.set_visible(false);
+        return;
+    };
+
+    let Some(account) = vault
+        .accounts
+        .accounts()
+        .iter()
+        .find(|account| account.id() == &id)
+    else {
+        issuer.set_text("Account unavailable");
+        account_label.set_text("This account is no longer in the vault.");
+        code.set_text("------");
+        countdown.set_text("");
+        copy.set_visible(false);
+        advance.set_visible(false);
+        edit.set_visible(false);
+        remove.set_visible(false);
+        return;
+    };
+
+    let display_issuer = if account.issuer().is_empty() {
+        account.label()
+    } else {
+        account.issuer()
+    };
+    issuer.set_text(display_issuer);
+    account_label.set_text(account.label());
+    code.set_text(
+        &account
+            .generate_code(unix_time())
+            .unwrap_or_else(|_| "------".to_owned()),
+    );
+
+    match account.mode() {
+        AccountMode::Totp { period_seconds } => {
+            let remaining = period_seconds - (unix_time() % period_seconds);
+            countdown.set_text(&format!("Refreshes in {remaining} seconds"));
+            copy.set_visible(true);
+            advance.set_visible(false);
+        }
+        AccountMode::Hotp { counter } => {
+            countdown.set_text(&format!("HOTP • Counter {counter}"));
+            copy.set_visible(false);
+            advance.set_visible(true);
+        }
+    }
+
+    edit.set_visible(true);
+    remove.set_visible(true);
+}
+
 fn show_accounts_page(
     stack: &Stack,
     window: &ApplicationWindow,
@@ -2612,26 +2692,231 @@ fn show_accounts_page(
         }
     }
 
-    let page = GtkBox::new(Orientation::Vertical, 14);
-    page.set_margin_top(24);
-    page.set_margin_bottom(24);
-    page.set_margin_start(24);
-    page.set_margin_end(24);
+    let page = GtkBox::new(Orientation::Vertical, 18);
+    page.set_margin_top(22);
+    page.set_margin_bottom(22);
+    page.set_margin_start(22);
+    page.set_margin_end(22);
 
-    let header = GtkBox::new(Orientation::Horizontal, 8);
-    let title = Label::new(Some("Your accounts"));
-    title.add_css_class("title-1");
-    title.set_hexpand(true);
-    title.set_xalign(0.0);
-    let add = Button::with_label("Add account");
-    let import_aegis = Button::with_label("Import Aegis");
-    let lock = Button::with_label("Lock");
-    header.append(&title);
-    header.append(&add);
-    header.append(&import_aegis);
+    // Keep the global header deliberately small. Migration and backup tools
+    // live in the overflow popover rather than competing with the account list.
+    let header = GtkBox::new(Orientation::Horizontal, 12);
+    let brand = GtkBox::new(Orientation::Vertical, 2);
+    brand.set_hexpand(true);
+    let app_title = Label::new(Some("SuikaAuthenticator"));
+    app_title.add_css_class("title-1");
+    app_title.set_xalign(0.0);
+    let app_subtitle = Label::new(Some("Offline authenticator"));
+    app_subtitle.add_css_class("dim-label");
+    app_subtitle.set_xalign(0.0);
+    brand.append(&app_title);
+    brand.append(&app_subtitle);
+    header.append(&brand);
+
+    let lock = Button::with_label("Lock vault");
+    let more = gtk::MenuButton::new();
+    more.set_icon_name("open-menu-symbolic");
+    more.set_tooltip_text(Some("Import, backup and restore"));
+
+    let menu = gtk::Popover::new();
+    let menu_content = GtkBox::new(Orientation::Vertical, 8);
+    menu_content.set_margin_top(12);
+    menu_content.set_margin_bottom(12);
+    menu_content.set_margin_start(12);
+    menu_content.set_margin_end(12);
+
+    let import_heading = Label::new(Some("IMPORT"));
+    import_heading.add_css_class("heading");
+    import_heading.set_xalign(0.0);
+    let import_aegis = Button::with_label("Import Aegis export");
+    let import_uri_list = Button::with_label("Import URI list");
+    menu_content.append(&import_heading);
+    menu_content.append(&import_aegis);
+    menu_content.append(&import_uri_list);
+    menu_content.append(&gtk::Separator::new(Orientation::Horizontal));
+
+    let backup_heading = Label::new(Some("BACKUP & RESTORE"));
+    backup_heading.add_css_class("heading");
+    backup_heading.set_xalign(0.0);
+    let create_backup = Button::with_label("Create encrypted backup");
+    let restore_backup = Button::with_label("Restore encrypted backup");
+    let restore_hint = Label::new(Some("Restore replaces all current accounts; it does not merge them."));
+    restore_hint.set_wrap(true);
+    restore_hint.add_css_class("dim-label");
+    restore_hint.set_xalign(0.0);
+    menu_content.append(&backup_heading);
+    menu_content.append(&create_backup);
+    menu_content.append(&restore_backup);
+    menu_content.append(&restore_hint);
+    menu.set_child(Some(&menu_content));
+    more.set_popover(Some(&menu));
+
     header.append(&lock);
+    header.append(&more);
     page.append(&header);
 
+    // Desktop split view: a compact account navigator on the left and the
+    // selected account's OTP and management actions on the right.
+    let content = GtkBox::new(Orientation::Horizontal, 16);
+    content.set_vexpand(true);
+
+    let sidebar = GtkBox::new(Orientation::Vertical, 10);
+    sidebar.set_size_request(270, -1);
+    sidebar.set_vexpand(true);
+    let sidebar_header = GtkBox::new(Orientation::Horizontal, 8);
+    let sidebar_title = Label::new(Some("Accounts"));
+    sidebar_title.add_css_class("title-2");
+    sidebar_title.set_hexpand(true);
+    sidebar_title.set_xalign(0.0);
+    let add = Button::with_label("Add account");
+    add.add_css_class("suggested-action");
+    sidebar_header.append(&sidebar_title);
+    sidebar_header.append(&add);
+    sidebar.append(&sidebar_header);
+
+    let count = unlocked
+        .borrow()
+        .as_ref()
+        .map_or(0, |vault| vault.accounts.len());
+    let summary = Label::new(Some(&format!(
+        "{count} saved {}",
+        if count == 1 { "account" } else { "accounts" }
+    )));
+    summary.add_css_class("dim-label");
+    summary.set_xalign(0.0);
+    sidebar.append(&summary);
+
+    let search = Entry::new();
+    search.set_placeholder_text(Some("Search issuer or account…"));
+    search.set_hexpand(true);
+    sidebar.append(&search);
+
+    let list = ListBox::new();
+    list.set_selection_mode(gtk::SelectionMode::Single);
+    list.set_activate_on_single_click(true);
+    list.add_css_class("boxed-list");
+
+    let mut account_ids = Vec::new();
+    let mut searchable_rows: Vec<(ListBoxRow, String)> = Vec::new();
+    if let Some(vault) = unlocked.borrow().as_ref() {
+        for account in vault.accounts.accounts() {
+            let row_content = GtkBox::new(Orientation::Vertical, 3);
+            row_content.set_margin_top(10);
+            row_content.set_margin_bottom(10);
+            row_content.set_margin_start(12);
+            row_content.set_margin_end(12);
+
+            let issuer = if account.issuer().is_empty() {
+                account.label()
+            } else {
+                account.issuer()
+            };
+            let issuer_label = Label::new(Some(issuer));
+            issuer_label.set_xalign(0.0);
+            issuer_label.add_css_class("heading");
+
+            let identity = Label::new(Some(account.label()));
+            identity.set_xalign(0.0);
+            identity.add_css_class("dim-label");
+
+            let mode = match account.mode() {
+                AccountMode::Totp { .. } => "TOTP",
+                AccountMode::Hotp { .. } => "HOTP",
+            };
+            let mode_label = Label::new(Some(mode));
+            mode_label.set_xalign(0.0);
+            mode_label.add_css_class("dim-label");
+
+            row_content.append(&issuer_label);
+            row_content.append(&identity);
+            row_content.append(&mode_label);
+
+            let row = ListBoxRow::new();
+            row.set_child(Some(&row_content));
+            list.append(&row);
+            account_ids.push(*account.id());
+            searchable_rows.push((
+                row,
+                format!("{} {}", account.issuer(), account.label()).to_lowercase(),
+            ));
+        }
+    }
+
+    let scrolled = ScrolledWindow::new();
+    scrolled.set_policy(gtk::PolicyType::Never, gtk::PolicyType::Automatic);
+    scrolled.set_vexpand(true);
+    scrolled.set_child(Some(&list));
+    sidebar.append(&scrolled);
+    content.append(&sidebar);
+    content.append(&gtk::Separator::new(Orientation::Vertical));
+
+    // The detail surface contains one selected account at a time. Keeping the
+    // OTP non-selectable ensures copying always goes through the expiry-aware
+    // clipboard action instead of manual text selection.
+    let detail = GtkBox::new(Orientation::Vertical, 14);
+    detail.set_hexpand(true);
+    detail.set_vexpand(true);
+    detail.set_valign(Align::Center);
+    detail.set_halign(Align::Fill);
+    detail.set_margin_top(28);
+    detail.set_margin_bottom(28);
+    detail.set_margin_start(28);
+    detail.set_margin_end(28);
+    detail.add_css_class("card");
+
+    let detail_caption = Label::new(Some("ONE-TIME PASSWORD"));
+    detail_caption.add_css_class("dim-label");
+    detail_caption.set_xalign(0.5);
+    let detail_issuer = Label::new(Some("Select an account"));
+    detail_issuer.add_css_class("title-1");
+    detail_issuer.set_xalign(0.5);
+    detail_issuer.set_justify(gtk::Justification::Center);
+    detail_issuer.set_wrap(true);
+    let detail_account = Label::new(Some("Choose an account from the list to view its one-time password."));
+    detail_account.add_css_class("dim-label");
+    detail_account.set_xalign(0.5);
+    detail_account.set_justify(gtk::Justification::Center);
+    detail_account.set_wrap(true);
+
+    let detail_code = Label::new(Some("------"));
+    detail_code.add_css_class("title-1");
+    detail_code.add_css_class("monospace");
+    detail_code.set_xalign(0.5);
+    detail_code.set_selectable(false);
+
+    let detail_countdown = Label::new(None);
+    detail_countdown.add_css_class("dim-label");
+    detail_countdown.set_xalign(0.5);
+
+    let actions = GtkBox::new(Orientation::Horizontal, 8);
+    actions.set_halign(Align::Center);
+    let copy = Button::with_label("Copy code");
+    copy.add_css_class("suggested-action");
+    let advance = Button::with_label("Copy & next");
+    advance.add_css_class("suggested-action");
+    let edit = Button::with_label("Edit");
+    let remove = Button::with_label("Remove");
+    remove.add_css_class("destructive-action");
+    copy.set_visible(false);
+    advance.set_visible(false);
+    edit.set_visible(false);
+    remove.set_visible(false);
+    actions.append(&copy);
+    actions.append(&advance);
+    actions.append(&edit);
+    actions.append(&remove);
+
+    detail.append(&detail_caption);
+    detail.append(&detail_issuer);
+    detail.append(&detail_account);
+    detail.append(&detail_code);
+    detail.append(&detail_countdown);
+    detail.append(&actions);
+    content.append(&detail);
+    page.append(&content);
+
+    // Add-account and import/backup dialogs retain their existing transactional
+    // flows; only their entry points are moved into the new layout.
     let stack_for_add = stack.downgrade();
     let window_for_add = window.downgrade();
     let directory_for_add = directory.clone();
@@ -2661,8 +2946,7 @@ fn show_accounts_page(
         let window_weak = window_for_import.clone();
         let directory_for_file = directory_for_import.clone();
         let unlocked_for_file = unlocked_for_import.clone();
-        let dialog_parent = window_for_import.upgrade();
-        if let Some(parent) = dialog_parent {
+        if let Some(parent) = window_for_import.upgrade() {
             file_dialog.open(Some(&parent), None::<&gio::Cancellable>, move |result| {
                 let Ok(file) = result else {
                     return;
@@ -2690,7 +2974,6 @@ fn show_accounts_page(
         }
     });
 
-    let import_uri_list = Button::with_label("Import URI list");
     let stack_for_uri_list = stack.downgrade();
     let window_for_uri_list = window.downgrade();
     let directory_for_uri_list = directory.clone();
@@ -2732,14 +3015,6 @@ fn show_accounts_page(
             });
         }
     });
-    header.append(&import_uri_list);
-
-    let backup_actions = GtkBox::new(Orientation::Horizontal, 8);
-    let create_backup = Button::with_label("Create encrypted backup");
-    let restore_backup = Button::with_label("Restore encrypted backup");
-    backup_actions.append(&create_backup);
-    backup_actions.append(&restore_backup);
-    page.append(&backup_actions);
 
     let stack_for_backup_export = stack.downgrade();
     let window_for_backup_export = window.downgrade();
@@ -2826,227 +3101,6 @@ fn show_accounts_page(
         }
     });
 
-    let backup_hint = Label::new(Some(
-        "Backups use a separate password and can be restored on Linux or Android. Restore replaces all current accounts; it does not merge them.",
-    ));
-    backup_hint.set_wrap(true);
-    backup_hint.add_css_class("dim-label");
-    backup_hint.set_xalign(0.0);
-    page.append(&backup_hint);
-
-    let count = unlocked
-        .borrow()
-        .as_ref()
-        .map_or(0, |vault| vault.accounts.len());
-    let summary = Label::new(Some(&format!(
-        "{count} {} in your encrypted vault",
-        if count == 1 { "account" } else { "accounts" }
-    )));
-    summary.add_css_class("dim-label");
-    summary.set_xalign(0.0);
-    page.append(&summary);
-
-    let search = Entry::new();
-    search.set_placeholder_text(Some("Search issuer or account…"));
-    search.set_hexpand(true);
-    page.append(&search);
-
-    let list = ListBox::new();
-    list.set_selection_mode(gtk::SelectionMode::None);
-    list.add_css_class("boxed-list");
-
-    let mut row_widgets = Vec::new();
-    let mut searchable_rows: Vec<(ListBoxRow, String)> = Vec::new();
-    if let Some(vault) = unlocked.borrow().as_ref() {
-        if vault.accounts.is_empty() {
-            let empty = GtkBox::new(Orientation::Vertical, 8);
-            empty.set_margin_top(32);
-            empty.set_margin_bottom(32);
-            let empty_title = Label::new(Some("No accounts yet"));
-            empty_title.add_css_class("title-2");
-            let empty_hint = Label::new(Some(
-                "Your encrypted vault is ready. Use Add account to enroll a TOTP or HOTP token.",
-            ));
-            empty_hint.set_wrap(true);
-            empty_hint.set_justify(gtk::Justification::Center);
-            empty_hint.add_css_class("dim-label");
-            empty.append(&empty_title);
-            empty.append(&empty_hint);
-
-            let row = ListBoxRow::new();
-            row.set_child(Some(&empty));
-            row.set_activatable(false);
-            row.set_selectable(false);
-            list.append(&row);
-        } else {
-            for account in vault.accounts.accounts() {
-                let row_content = GtkBox::new(Orientation::Horizontal, 12);
-                row_content.set_margin_top(12);
-                row_content.set_margin_bottom(12);
-                row_content.set_margin_start(12);
-                row_content.set_margin_end(12);
-
-                let identity = GtkBox::new(Orientation::Vertical, 4);
-                identity.set_hexpand(true);
-                let issuer = if account.issuer().is_empty() {
-                    account.label()
-                } else {
-                    account.issuer()
-                };
-
-                let issuer_label = Label::new(Some(issuer));
-                issuer_label.set_xalign(0.0);
-                issuer_label.add_css_class("heading");
-
-                let account_label = Label::new(Some(account.label()));
-                account_label.set_xalign(0.0);
-                account_label.add_css_class("dim-label");
-
-                let code = Label::new(Some(
-                    &account
-                        .generate_code(unix_time())
-                        .unwrap_or_else(|_| "------".to_owned()),
-                ));
-                code.set_xalign(0.0);
-                code.add_css_class("monospace");
-                code.add_css_class("title-2");
-
-                let countdown = Label::new(None);
-                countdown.set_xalign(0.0);
-                countdown.add_css_class("dim-label");
-
-                identity.append(&issuer_label);
-                identity.append(&account_label);
-                identity.append(&code);
-                identity.append(&countdown);
-
-                row_content.append(&identity);
-
-                match account.mode() {
-                    AccountMode::Totp { .. } => {
-                        let copy = Button::with_label("Copy");
-                        let code_for_copy = code.clone();
-                        copy.connect_clicked(move |_| {
-                            if let Some(display) = gtk::gdk::Display::default() {
-                                let value = code_for_copy.text().to_string();
-                                if value != "------" {
-                                    copy_otp_to_clipboard(&display.clipboard(), value);
-                                }
-                            }
-                        });
-                        row_content.append(&copy);
-                    }
-                    AccountMode::Hotp { .. } => {
-                        let advance = Button::with_label("Copy & next");
-                        let id = *account.id();
-                        let unlocked_for_advance = unlocked.clone();
-                        let directory_for_advance = directory.clone();
-                        let code_for_advance = code.clone();
-                        let countdown_for_advance = countdown.clone();
-                        advance.connect_clicked(move |_| {
-                            match advance_hotp_and_persist(
-                                &unlocked_for_advance,
-                                &directory_for_advance,
-                                &id,
-                            ) {
-                                Ok((used_code, next_code, next_counter)) => {
-                                    code_for_advance.set_text(&next_code);
-                                    countdown_for_advance
-                                        .set_text(&format!("Counter {next_counter}"));
-                                    if let Some(display) = gtk::gdk::Display::default() {
-                                        copy_otp_to_clipboard(&display.clipboard(), used_code);
-                                    }
-                                }
-                                Err(message) => {
-                                    countdown_for_advance
-                                        .set_text(&format!("Counter not advanced: {message}"));
-                                }
-                            }
-                        });
-                        row_content.append(&advance);
-                    }
-                }
-
-                let edit = Button::with_label("Edit");
-                let edit_id = *account.id();
-                let stack_for_edit = stack.downgrade();
-                let window_for_edit = window.downgrade();
-                let directory_for_edit = directory.clone();
-                let unlocked_for_edit = unlocked.clone();
-                edit.connect_clicked(move |_| {
-                    if let (Some(stack), Some(window)) =
-                        (stack_for_edit.upgrade(), window_for_edit.upgrade())
-                    {
-                        show_edit_account_page(
-                            &stack,
-                            &window,
-                            directory_for_edit.clone(),
-                            unlocked_for_edit.clone(),
-                            edit_id,
-                        );
-                    }
-                });
-                row_content.append(&edit);
-
-                let remove = Button::with_label("Remove");
-                let remove_id = *account.id();
-                let stack_for_remove = stack.downgrade();
-                let window_for_remove = window.downgrade();
-                let directory_for_remove = directory.clone();
-                let unlocked_for_remove = unlocked.clone();
-                remove.connect_clicked(move |_| {
-                    if let (Some(stack), Some(window)) =
-                        (stack_for_remove.upgrade(), window_for_remove.upgrade())
-                    {
-                        confirm_remove_account(
-                            &window,
-                            &stack,
-                            directory_for_remove.clone(),
-                            unlocked_for_remove.clone(),
-                            remove_id,
-                        );
-                    }
-                });
-                row_content.append(&remove);
-
-                let row = ListBoxRow::new();
-                row.set_child(Some(&row_content));
-                row.set_activatable(false);
-                row.set_selectable(false);
-                list.append(&row);
-                searchable_rows.push((
-                    row.clone(),
-                    format!("{} {}", account.issuer(), account.label()).to_lowercase(),
-                ));
-
-                row_widgets.push(AccountRowWidgets {
-                    id: *account.id(),
-                    code,
-                    countdown,
-                });
-            }
-        }
-    }
-
-    let search_rows = searchable_rows;
-    search.connect_changed(move |entry| {
-        let query = entry.text().trim().to_lowercase();
-        for (row, searchable_text) in &search_rows {
-            row.set_visible(query.is_empty() || searchable_text.contains(&query));
-        }
-    });
-
-    let scrolled = ScrolledWindow::new();
-    scrolled.set_policy(gtk::PolicyType::Never, gtk::PolicyType::Automatic);
-    scrolled.set_vexpand(true);
-    scrolled.set_child(Some(&list));
-    page.append(&scrolled);
-
-    let footer = Label::new(Some("Offline vault • Stored in ~/.SuikaAuthenticator/"));
-    footer.set_xalign(0.0);
-    footer.add_css_class("dim-label");
-    page.append(&footer);
-
     let stack_for_lock = stack.downgrade();
     let window_for_lock = window.downgrade();
     let directory_for_lock = directory.clone();
@@ -3062,48 +3116,180 @@ fn show_accounts_page(
         }
     });
 
-    if !row_widgets.is_empty() {
-        let unlocked_for_timer = unlocked.clone();
-        let page_for_timer = page.clone();
-        glib::source::timeout_add_seconds_local(1, move || {
-            if !page_for_timer.is_mapped() {
-                return ControlFlow::Break;
+    let selected_id = Rc::new(Cell::new(None::<[u8; 16]>));
+    let account_ids = Rc::new(account_ids);
+    let selected_for_list = selected_id.clone();
+    let unlocked_for_list = unlocked.clone();
+    let selected_issuer = detail_issuer.clone();
+    let selected_account = detail_account.clone();
+    let selected_code = detail_code.clone();
+    let selected_countdown = detail_countdown.clone();
+    let selected_copy = copy.clone();
+    let selected_advance = advance.clone();
+    let selected_edit = edit.clone();
+    let selected_remove = remove.clone();
+    list.connect_row_selected(move |_, row| {
+        let id = row.and_then(|row| {
+            let index = row.index();
+            if index < 0 {
+                None
+            } else {
+                account_ids.get(index as usize).copied()
             }
+        });
+        selected_for_list.set(id);
+        refresh_selected_account(
+            id,
+            &unlocked_for_list,
+            &selected_issuer,
+            &selected_account,
+            &selected_code,
+            &selected_countdown,
+            &selected_copy,
+            &selected_advance,
+            &selected_edit,
+            &selected_remove,
+        );
+    });
 
-            let borrowed = unlocked_for_timer.borrow();
-            let Some(vault) = borrowed.as_ref() else {
-                return ControlFlow::Break;
-            };
+    let search_rows = searchable_rows;
+    let list_for_search = list.clone();
+    search.connect_changed(move |entry| {
+        let query = entry.text().trim().to_lowercase();
+        for (row, searchable_text) in &search_rows {
+            row.set_visible(query.is_empty() || searchable_text.contains(&query));
+        }
 
-            let now = unix_time();
-            for row in &row_widgets {
-                if let Some(account) = vault
-                    .accounts
-                    .accounts()
-                    .iter()
-                    .find(|account| account.id() == &row.id)
-                {
-                    let code = account
-                        .generate_code(now)
-                        .unwrap_or_else(|_| "------".to_owned());
-                    row.code.set_text(&code);
+        let selected_is_hidden = list_for_search
+            .selected_row()
+            .is_none_or(|selected| !selected.is_visible());
+        if selected_is_hidden {
+            if let Some((first_visible, _)) =
+                search_rows.iter().find(|(row, _)| row.is_visible())
+            {
+                list_for_search.select_row(Some(first_visible));
+            } else {
+                list_for_search.unselect_all();
+            }
+        }
+    });
 
-                    match account.mode() {
-                        AccountMode::Totp { period_seconds } => {
-                            let remaining = period_seconds - (now % period_seconds);
-                            row.countdown
-                                .set_text(&format!("Refreshes in {remaining}s"));
-                        }
-                        AccountMode::Hotp { counter } => {
-                            row.countdown.set_text(&format!("Counter {counter}"));
-                        }
-                    }
+    let selected_for_copy = selected_id.clone();
+    let code_for_copy = detail_code.clone();
+    copy.connect_clicked(move |_| {
+        if selected_for_copy.get().is_none() {
+            return;
+        }
+        let value = code_for_copy.text().to_string();
+        if value != "------" {
+            if let Some(display) = gtk::gdk::Display::default() {
+                copy_otp_to_clipboard(&display.clipboard(), value);
+            }
+        }
+    });
+
+    let selected_for_advance = selected_id.clone();
+    let unlocked_for_advance = unlocked.clone();
+    let directory_for_advance = directory.clone();
+    let code_for_advance = detail_code.clone();
+    let countdown_for_advance = detail_countdown.clone();
+    advance.connect_clicked(move |_| {
+        let Some(id) = selected_for_advance.get() else {
+            return;
+        };
+        match advance_hotp_and_persist(&unlocked_for_advance, &directory_for_advance, &id) {
+            Ok((used_code, next_code, next_counter)) => {
+                code_for_advance.set_text(&next_code);
+                countdown_for_advance.set_text(&format!("HOTP • Counter {next_counter}"));
+                if let Some(display) = gtk::gdk::Display::default() {
+                    copy_otp_to_clipboard(&display.clipboard(), used_code);
                 }
             }
+            Err(message) => {
+                countdown_for_advance.set_text(&format!("Counter not advanced: {message}"));
+            }
+        }
+    });
 
-            ControlFlow::Continue
-        });
+    let selected_for_edit = selected_id.clone();
+    let stack_for_edit = stack.downgrade();
+    let window_for_edit = window.downgrade();
+    let directory_for_edit = directory.clone();
+    let unlocked_for_edit = unlocked.clone();
+    edit.connect_clicked(move |_| {
+        let Some(id) = selected_for_edit.get() else {
+            return;
+        };
+        if let (Some(stack), Some(window)) = (stack_for_edit.upgrade(), window_for_edit.upgrade()) {
+            show_edit_account_page(
+                &stack,
+                &window,
+                directory_for_edit.clone(),
+                unlocked_for_edit.clone(),
+                id,
+            );
+        }
+    });
+
+    let selected_for_remove = selected_id.clone();
+    let stack_for_remove = stack.downgrade();
+    let window_for_remove = window.downgrade();
+    let directory_for_remove = directory.clone();
+    let unlocked_for_remove = unlocked.clone();
+    remove.connect_clicked(move |_| {
+        let Some(id) = selected_for_remove.get() else {
+            return;
+        };
+        if let (Some(stack), Some(window)) = (stack_for_remove.upgrade(), window_for_remove.upgrade()) {
+            confirm_remove_account(
+                &window,
+                &stack,
+                directory_for_remove.clone(),
+                unlocked_for_remove.clone(),
+                id,
+            );
+        }
+    });
+
+    if count == 0 {
+        detail_issuer.set_text("No accounts yet");
+        detail_account.set_text("Add an account or import an existing authenticator export to get started.");
+        detail_code.set_text("—");
+        detail_countdown.set_text("");
+    } else if let Some(first_row) = list.row_at_index(0) {
+        list.select_row(Some(&first_row));
     }
+
+    let selected_for_timer = selected_id.clone();
+    let unlocked_for_timer = unlocked.clone();
+    let page_for_timer = page.clone();
+    let issuer_for_timer = detail_issuer.clone();
+    let account_for_timer = detail_account.clone();
+    let code_for_timer = detail_code.clone();
+    let countdown_for_timer = detail_countdown.clone();
+    let copy_for_timer = copy.clone();
+    let advance_for_timer = advance.clone();
+    let edit_for_timer = edit.clone();
+    let remove_for_timer = remove.clone();
+    glib::source::timeout_add_seconds_local(1, move || {
+        if !page_for_timer.is_mapped() {
+            return ControlFlow::Break;
+        }
+
+        refresh_selected_account(
+            selected_for_timer.get(),
+            &unlocked_for_timer,
+            &issuer_for_timer,
+            &account_for_timer,
+            &code_for_timer,
+            &countdown_for_timer,
+            &copy_for_timer,
+            &advance_for_timer,
+            &edit_for_timer,
+            &remove_for_timer,
+        );
+        ControlFlow::Continue
+    });
 
     replace_page(stack, "accounts", &page);
 }
