@@ -3,6 +3,7 @@
 All notable project changes will be recorded here.
 
 ## Unreleased
+- Corrected the Android JNI lockfile's `walkdir 2.5.0` checksum to match Cargo's generated lockfile from the successful debug APK artifact; the next CI run verifies `--locked` resolution end to end.
 - Committed the Android JNI workspace's Cargo-generated lockfile from the successful dual-ABI build and made Android JNI tests, strict Clippy, and release cross-compilation use `--locked`.
 - Replaced the fixed-size Base32 account-ID `chunks_exact` decoder with indexed decoding after Rust 1.100 strict Clippy flagged the iterator pattern; the 32-character input check still guarantees all 16 byte pairs are in bounds.
 - Removed the extra terminal blank line from the Android JNI source after the formatter reported the remaining EOF-only diff.
