@@ -3,6 +3,9 @@
 All notable project changes will be recorded here.
 
 ## Unreleased
+- Replaced Linux Add/Edit free-text OTP configuration fields with dropdowns for TOTP/HOTP mode, HMAC algorithm, code length, and common TOTP-period/HOTP-counter presets. A clearly labeled Custom… choice retains support for non-preset values; added selector-mapping regression tests.
+- Added Android TOTP enrollment dropdowns for HMAC-SHA-1/SHA-256/SHA-512, 6/7/8 digits, and common periods instead of hardcoding SHA-1, six digits, and 30 seconds.
+- Added configurable Android background auto-lock: immediately or after 1, 3, 5, or 10 minutes. The preference stays under the app-private SuikaAuthenticator data root; immediate locking remains the default, and a pending lock is canceled when the app returns to the foreground in time.
 - Borrowed the non-Copy `Account` values in the new Android account-edit persistence test instead of attempting to move them out of an indexed slice.
 - Applied the exact Android JNI rustfmt changes for the account edit/remove exports and persistence test before rerunning the Android build gates.
 - Added Android account editing and removal through the shared Rust core. Metadata edits preserve stable IDs, OTP algorithm/digits/mode, groups, favorites, and existing secrets when the replacement-secret field is left blank; removal requires UI confirmation and commits encrypted state.

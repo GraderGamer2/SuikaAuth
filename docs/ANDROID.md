@@ -64,7 +64,7 @@ The vault file uses the exact same versioned container and account-database form
 
 ## Lifecycle and biometric roadmap
 
-The Android frontend will lock on explicit user request and after a five-minute inactivity timeout. The lifecycle must drop the native unlocked-session handle when the app is locked or the process is shutting down; process death is not a substitute for the explicit lock path.
+The Android frontend locks on explicit user request, after five minutes of inactivity, and when the app becomes no longer visible according to a user-selected timeout: immediately (the default), or after 1, 3, 5, or 10 minutes. A pending background lock is canceled if the user returns before the selected delay expires. The timeout preference is stored in `noBackupFilesDir/SuikaAuthenticator/background-lock-timeout-ms`, alongside the encrypted vault and other app-owned state. The lifecycle must drop the native unlocked-session handle when the selected lock expires or the process is shutting down; process death is not a substitute for the explicit lock path.
 
 Biometric unlock is a later milestone. It must use Android Keystore for a non-exportable, device-bound wrapping key and BiometricPrompt for authorization. A biometric match by itself must never be treated as cryptographic vault authentication. The master password remains the portable recovery method.
 

@@ -15,12 +15,16 @@ import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.inputmethod.EditorInfo
+import android.widget.AdapterView
+import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
+import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
+import java.io.File
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -29,6 +33,8 @@ class MainActivity : Activity() {
     private val worker: ExecutorService = Executors.newSingleThreadExecutor()
     private val handler = Handler(Looper.getMainLooper())
     private val inactivityTimeoutMs = 5 * 60 * 1000L
+    private val backgroundLock = Runnable { lockSession(showAuthentication = false) }
+    private var backgroundLockTimeoutMs = 0L
     private var activeHandle: Long? = null
     private var vaultExists: Boolean? = null
     private var isRefreshing = false
@@ -40,6 +46,15 @@ class MainActivity : Activity() {
     private lateinit var searchInput: EditText
 
     private val inactivityLock = Runnable { lockSession(showAuthentication = true) }
+
+    private val backgroundLockTimeoutChoices = longArrayOf(
+        0L,
+        60_000L,
+        3 * 60_000L,
+        5 * 60_000L,
+        10 * 60_000L
+    )
+    private val totpPeriodChoices = longArrayOf(15L, 30L, 45L, 60L, 90L, 120L, 300L)
 
     private val accountRefresh = object : Runnable {
         override fun run() {
@@ -64,6 +79,7 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        backgroundLockTimeoutMs = loadBackgroundLockTimeout()
         buildShell()
         status.text = "Checking encrypted vault…"
         worker.execute {
@@ -79,22 +95,32 @@ class MainActivity : Activity() {
 
     override fun onStart() {
         super.onStart()
+        handler.removeCallbacks(backgroundLock)
         if (activeHandle == null && vaultExists == true && content.childCount > 0) {
             renderAuthentication(existingVault = true)
+        } else if (activeHandle != null) {
+            handler.post(accountRefresh)
+            resetInactivityTimer()
         }
     }
 
     override fun onStop() {
         handler.removeCallbacks(accountRefresh)
         handler.removeCallbacks(inactivityLock)
-        val handle = activeHandle
-        activeHandle = null
-        if (handle != null) worker.execute { runCatching { NativeBridge.nativeLockVault(handle) } }
+        if (activeHandle != null) {
+            if (backgroundLockTimeoutMs == 0L) {
+                lockSession(showAuthentication = false)
+            } else {
+                handler.removeCallbacks(backgroundLock)
+                handler.postDelayed(backgroundLock, backgroundLockTimeoutMs)
+            }
+        }
         super.onStop()
     }
 
     override fun onDestroy() {
         handler.removeCallbacksAndMessages(null)
+        if (activeHandle != null) lockSession(showAuthentication = false)
         worker.shutdown()
         super.onDestroy()
     }
@@ -196,6 +222,20 @@ class MainActivity : Activity() {
         addText("Vault unlocked · encrypted storage is active", 13f)
         addButton("Lock vault").setOnClickListener { lockSession(showAuthentication = true) }
 
+        addSectionTitle("Security")
+        val lockChoices = arrayOf(
+            "Immediately",
+            "After 1 minute",
+            "After 3 minutes",
+            "After 5 minutes",
+            "After 10 minutes"
+        )
+        val backgroundLockSelector = addDropdownField(
+            "Lock when the app is no longer visible",
+            lockChoices,
+            backgroundLockTimeoutChoices.indexOf(backgroundLockTimeoutMs).coerceAtLeast(0)
+        )
+
         searchInput = addTextField("Search issuer or account")
         searchInput.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
@@ -209,6 +249,17 @@ class MainActivity : Activity() {
         val issuer = addTextField("Issuer (optional)")
         val label = addTextField("Account name")
         val secret = addPasswordField("Base32 secret")
+        val algorithm = addDropdownField(
+            "HMAC algorithm",
+            arrayOf("SHA-1", "SHA-256", "SHA-512"),
+            0
+        )
+        val digits = addDropdownField("Code digits", arrayOf("6", "7", "8"), 0)
+        val period = addDropdownField(
+            "TOTP period",
+            arrayOf("15 seconds", "30 seconds", "45 seconds", "60 seconds", "90 seconds", "120 seconds", "300 seconds"),
+            1
+        )
         val add = addButton("Add account")
         add.setOnClickListener {
             val handle = activeHandle ?: return@setOnClickListener
@@ -224,7 +275,20 @@ class MainActivity : Activity() {
             add.isEnabled = false
             worker.execute {
                 val result = runCatching {
-                    NativeBridge.nativeAddTotp(handle, issuerText, labelText, encodedSecret, 1, 6, 30L)
+                    val selectedAlgorithm = algorithm.selectedItemPosition + 1
+                    val selectedDigits = intArrayOf(6, 7, 8).getOrNull(digits.selectedItemPosition)
+                        ?: error("Choose a code length of 6, 7, or 8 digits.")
+                    val selectedPeriod = totpPeriodChoices.getOrNull(period.selectedItemPosition)
+                        ?: error("Choose a valid TOTP period.")
+                    NativeBridge.nativeAddTotp(
+                        handle,
+                        issuerText,
+                        labelText,
+                        encodedSecret,
+                        selectedAlgorithm,
+                        selectedDigits,
+                        selectedPeriod
+                    )
                 }
                 encodedSecret.fill(0)
                 runOnUiThread {
@@ -239,6 +303,28 @@ class MainActivity : Activity() {
             }
         }
         status = addText("", 13f)
+        backgroundLockSelector.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(
+                parent: AdapterView<*>?,
+                view: View?,
+                position: Int,
+                id: Long
+            ) {
+                val selectedTimeout = backgroundLockTimeoutChoices.getOrNull(position) ?: return
+                if (selectedTimeout == backgroundLockTimeoutMs) return
+                runCatching { saveBackgroundLockTimeout(selectedTimeout) }
+                    .onSuccess {
+                        status.text = "Background auto-lock updated."
+                    }
+                    .onFailure {
+                        val previousIndex = backgroundLockTimeoutChoices.indexOf(backgroundLockTimeoutMs)
+                        backgroundLockSelector.setSelection(previousIndex.coerceAtLeast(0))
+                        status.text = "Could not save the auto-lock setting: " + it.message
+                    }
+            }
+
+            override fun onNothingSelected(parent: AdapterView<*>?) = Unit
+        }
         handler.post(accountRefresh)
         resetInactivityTimer()
     }
@@ -520,6 +606,42 @@ class MainActivity : Activity() {
         }
         content.addView(field, matchWidthWrapHeight())
         return field
+    }
+
+    private fun addDropdownField(
+        label: String,
+        options: Array<String>,
+        selectedIndex: Int
+    ): Spinner {
+        addSectionTitle(label)
+        val spinner = Spinner(this)
+        val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, options)
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        spinner.adapter = adapter
+        spinner.setSelection(selectedIndex.coerceIn(options.indices))
+        content.addView(spinner, matchWidthWrapHeight())
+        return spinner
+    }
+
+    private fun loadBackgroundLockTimeout(): Long = runCatching {
+        val settings = File(
+            File(noBackupFilesDir, "SuikaAuthenticator"),
+            "background-lock-timeout-ms"
+        )
+        val stored = if (settings.isFile) settings.readText().trim().toLongOrNull() else null
+        backgroundLockTimeoutChoices.firstOrNull { it == stored } ?: 0L
+    }.getOrDefault(0L)
+
+    private fun saveBackgroundLockTimeout(timeout: Long) {
+        require(backgroundLockTimeoutChoices.any { it == timeout }) {
+            "Unsupported background auto-lock interval."
+        }
+        val directory = File(noBackupFilesDir, "SuikaAuthenticator")
+        check(directory.isDirectory || directory.mkdirs()) {
+            "The application data directory could not be created."
+        }
+        File(directory, "background-lock-timeout-ms").writeText(timeout.toString())
+        backgroundLockTimeoutMs = timeout
     }
 
     private fun addButton(label: String): Button {

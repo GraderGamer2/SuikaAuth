@@ -545,7 +545,11 @@ fn authenticate(
     }
 }
 
-fn labeled_entry(parent: &GtkBox, label_text: &str, placeholder: &str) -> Entry {
+fn labeled_entry_field(
+    parent: &GtkBox,
+    label_text: &str,
+    placeholder: &str,
+) -> (GtkBox, Entry) {
     let field = GtkBox::new(Orientation::Vertical, 4);
     let label = Label::new(Some(label_text));
     label.set_xalign(0.0);
@@ -558,7 +562,95 @@ fn labeled_entry(parent: &GtkBox, label_text: &str, placeholder: &str) -> Entry 
     field.append(&label);
     field.append(&entry);
     parent.append(&field);
-    entry
+    (field, entry)
+}
+
+fn labeled_entry(parent: &GtkBox, label_text: &str, placeholder: &str) -> Entry {
+    labeled_entry_field(parent, label_text, placeholder).1
+}
+
+fn labeled_dropdown(
+    parent: &GtkBox,
+    label_text: &str,
+    options: &[&str],
+    selected: u32,
+) -> (gtk::DropDown, GtkBox) {
+    let field = GtkBox::new(Orientation::Vertical, 4);
+    let label = Label::new(Some(label_text));
+    label.set_xalign(0.0);
+    label.add_css_class("heading");
+
+    let dropdown = gtk::DropDown::from_strings(options);
+    dropdown.set_selected(selected);
+    dropdown.set_hexpand(true);
+
+    field.append(&label);
+    field.append(&dropdown);
+    parent.append(&field);
+    (dropdown, field)
+}
+
+const TOTP_PERIOD_PRESETS: [u64; 7] = [15, 30, 45, 60, 90, 120, 300];
+const HOTP_COUNTER_PRESETS: [u64; 6] = [0, 1, 2, 5, 10, 100];
+
+fn selected_parameter(
+    mode_selected: u32,
+    period_selected: u32,
+    counter_selected: u32,
+    custom_value: &str,
+) -> Result<u64, &'static str> {
+    match mode_selected {
+        0 if period_selected == TOTP_PERIOD_PRESETS.len() as u32 => custom_value
+            .trim()
+            .parse::<u64>()
+            .map_err(|_| "Enter a valid custom TOTP period in seconds."),
+        0 => TOTP_PERIOD_PRESETS
+            .get(period_selected as usize)
+            .copied()
+            .ok_or("Choose a TOTP period."),
+        1 if counter_selected == HOTP_COUNTER_PRESETS.len() as u32 => custom_value
+            .trim()
+            .parse::<u64>()
+            .map_err(|_| "Enter a valid custom HOTP counter."),
+        1 => HOTP_COUNTER_PRESETS
+            .get(counter_selected as usize)
+            .copied()
+            .ok_or("Choose an HOTP counter."),
+        _ => Err("Choose TOTP or HOTP as the OTP mode."),
+    }
+}
+
+fn bind_parameter_fields(
+    mode: &gtk::DropDown,
+    period: &gtk::DropDown,
+    period_field: &GtkBox,
+    counter: &gtk::DropDown,
+    counter_field: &GtkBox,
+    custom_field: &GtkBox,
+) {
+    let mode = mode.clone();
+    let period = period.clone();
+    let counter = counter.clone();
+    let period_field = period_field.clone();
+    let counter_field = counter_field.clone();
+    let custom_field = custom_field.clone();
+    let update = Rc::new(move || {
+        let is_totp = mode.selected() == 0;
+        period_field.set_visible(is_totp);
+        counter_field.set_visible(!is_totp);
+        let custom_selected = if is_totp {
+            period.selected() == TOTP_PERIOD_PRESETS.len() as u32
+        } else {
+            counter.selected() == HOTP_COUNTER_PRESETS.len() as u32
+        };
+        custom_field.set_visible(custom_selected);
+    });
+    let update_mode = update.clone();
+    mode.connect_selected_notify(move |_| update_mode());
+    let update_period = update.clone();
+    period.connect_selected_notify(move |_| update_period());
+    counter.connect_selected_notify(move |_| update());
+    update();
 }
 
 fn show_add_account_page(
@@ -596,21 +688,41 @@ fn show_add_account_page(
     secret.set_widget_name("suika-secret-entry");
     secret.set_max_length(208);
 
-    let mode = labeled_entry(&page, "OTP mode", "TOTP or HOTP");
-    mode.set_text("TOTP");
-    mode.set_max_length(4);
-
-    let algorithm = labeled_entry(&page, "HMAC algorithm", "SHA1, SHA256, or SHA512");
-    algorithm.set_text("SHA1");
-    algorithm.set_max_length(6);
-
-    let digits = labeled_entry(&page, "Code digits", "6, 7, or 8");
-    digits.set_text("6");
-    digits.set_max_length(1);
-
-    let parameter = labeled_entry(&page, "TOTP period / HOTP counter", "30 (TOTP) or 0 (HOTP)");
-    parameter.set_text("30");
-    parameter.set_max_length(20);
+    let (mode, _mode_field) =
+        labeled_dropdown(&page, "OTP mode", &["TOTP", "HOTP"], 0);
+    let (algorithm, _algorithm_field) = labeled_dropdown(
+        &page,
+        "HMAC algorithm",
+        &["SHA1", "SHA256", "SHA512"],
+        0,
+    );
+    let (digits, _digits_field) =
+        labeled_dropdown(&page, "Code digits", &["6", "7", "8"], 0);
+    let (period, period_field) = labeled_dropdown(
+        &page,
+        "TOTP period",
+        &["15 seconds", "30 seconds", "45 seconds", "60 seconds", "90 seconds", "120 seconds", "300 seconds", "Custom…"],
+        1,
+    );
+    let (counter, counter_field) = labeled_dropdown(
+        &page,
+        "HOTP initial counter",
+        &["0", "1", "2", "5", "10", "100", "Custom…"],
+        0,
+    );
+    let (custom_parameter_field, custom_parameter) = labeled_entry_field(
+        &page,
+        "Custom period (seconds) or counter",
+        "Enter a positive period or counter value",
+    );
+    bind_parameter_fields(
+        &mode,
+        &period,
+        &period_field,
+        &counter,
+        &counter_field,
+        &custom_parameter_field,
+    );
 
     let status = Label::new(None);
     status.set_wrap(true);
@@ -656,7 +768,9 @@ fn show_add_account_page(
     let algorithm_for_save = algorithm.clone();
     let digits_for_save = digits.clone();
     let mode_for_save = mode.clone();
-    let parameter_for_save = parameter.clone();
+    let period_for_save = period.clone();
+    let counter_for_save = counter.clone();
+    let custom_parameter_for_save = custom_parameter.clone();
     let status_for_save = status.clone();
     let save_for_save = save.clone();
 
@@ -666,31 +780,39 @@ fn show_add_account_page(
         let secret_value = Zeroizing::new(secret_for_save.text().to_string());
         secret_for_save.set_text("");
 
-        let algorithm_value = match algorithm_for_save.text().trim().to_ascii_uppercase().as_str() {
-            "SHA1" => OtpAlgorithm::Sha1,
-            "SHA256" => OtpAlgorithm::Sha256,
-            "SHA512" => OtpAlgorithm::Sha512,
+        let algorithm_value = match algorithm_for_save.selected() {
+            0 => OtpAlgorithm::Sha1,
+            1 => OtpAlgorithm::Sha256,
+            2 => OtpAlgorithm::Sha512,
             _ => {
                 status_for_save.set_text("Choose SHA1, SHA256, or SHA512.");
                 return;
             }
         };
-        let digits_value = match digits_for_save.text().trim().parse::<u8>() {
-            Ok(value @ 6..=8) => value,
+        let digits_value = match digits_for_save.selected() {
+            value @ 0..=2 => (value + 6) as u8,
             _ => {
-                status_for_save.set_text("Code length must be 6, 7, or 8 digits.");
+                status_for_save.set_text("Choose a code length of 6, 7, or 8 digits.");
                 return;
             }
         };
-        let mode_value = mode_for_save.text().trim().to_ascii_uppercase();
-        if mode_value != "TOTP" && mode_value != "HOTP" {
-            status_for_save.set_text("Choose TOTP or HOTP as the OTP mode.");
-            return;
-        }
-        let parameter_value = match parameter_for_save.text().trim().parse::<u64>() {
+        let mode_value = match mode_for_save.selected() {
+            0 => "TOTP",
+            1 => "HOTP",
+            _ => {
+                status_for_save.set_text("Choose TOTP or HOTP as the OTP mode.");
+                return;
+            }
+        };
+        let parameter_value = match selected_parameter(
+            mode_for_save.selected(),
+            period_for_save.selected(),
+            counter_for_save.selected(),
+            custom_parameter_for_save.text().as_str(),
+        ) {
             Ok(value) => value,
-            Err(_) => {
-                status_for_save.set_text("Enter a valid TOTP period or HOTP counter.");
+            Err(message) => {
+                status_for_save.set_text(message);
                 return;
             }
         };
@@ -921,21 +1043,62 @@ fn show_edit_account_page(
     secret.set_widget_name("suika-secret-entry");
     secret.set_max_length(208);
 
-    let mode = labeled_entry(&page, "OTP mode", "TOTP or HOTP");
-    mode.set_text(mode_value);
-    mode.set_max_length(4);
-
-    let algorithm = labeled_entry(&page, "HMAC algorithm", "SHA1, SHA256, or SHA512");
-    algorithm.set_text(algorithm_value);
-    algorithm.set_max_length(6);
-
-    let digits = labeled_entry(&page, "Code digits", "6, 7, or 8");
-    digits.set_text(&digits_value.to_string());
-    digits.set_max_length(1);
-
-    let parameter = labeled_entry(&page, "TOTP period / HOTP counter", "Seconds or counter");
-    parameter.set_text(&parameter_value.to_string());
-    parameter.set_max_length(20);
+    let mode_selection = if mode_value == "TOTP" { 0 } else { 1 };
+    let (mode, _mode_field) =
+        labeled_dropdown(&page, "OTP mode", &["TOTP", "HOTP"], mode_selection);
+    let algorithm_selection = match algorithm_value.as_str() {
+        "SHA1" => 0,
+        "SHA256" => 1,
+        "SHA512" => 2,
+        _ => 0,
+    };
+    let (algorithm, _algorithm_field) = labeled_dropdown(
+        &page,
+        "HMAC algorithm",
+        &["SHA1", "SHA256", "SHA512"],
+        algorithm_selection,
+    );
+    let digit_selection = digits_value.saturating_sub(6).min(2) as u32;
+    let (digits, _digits_field) =
+        labeled_dropdown(&page, "Code digits", &["6", "7", "8"], digit_selection);
+    let period_selection = TOTP_PERIOD_PRESETS
+        .iter()
+        .position(|value| *value == parameter_value)
+        .map_or(TOTP_PERIOD_PRESETS.len() as u32, |index| index as u32);
+    let (period, period_field) = labeled_dropdown(
+        &page,
+        "TOTP period",
+        &["15 seconds", "30 seconds", "45 seconds", "60 seconds", "90 seconds", "120 seconds", "300 seconds", "Custom…"],
+        period_selection,
+    );
+    let counter_selection = HOTP_COUNTER_PRESETS
+        .iter()
+        .position(|value| *value == parameter_value)
+        .map_or(HOTP_COUNTER_PRESETS.len() as u32, |index| index as u32);
+    let (counter, counter_field) = labeled_dropdown(
+        &page,
+        "HOTP initial counter",
+        &["0", "1", "2", "5", "10", "100", "Custom…"],
+        counter_selection,
+    );
+    let (custom_parameter_field, custom_parameter) = labeled_entry_field(
+        &page,
+        "Custom period (seconds) or counter",
+        "Enter a positive period or counter value",
+    );
+    if (mode_selection == 0 && period_selection == TOTP_PERIOD_PRESETS.len() as u32)
+        || (mode_selection == 1 && counter_selection == HOTP_COUNTER_PRESETS.len() as u32)
+    {
+        custom_parameter.set_text(&parameter_value.to_string());
+    }
+    bind_parameter_fields(
+        &mode,
+        &period,
+        &period_field,
+        &counter,
+        &counter_field,
+        &custom_parameter_field,
+    );
 
     let status = Label::new(None);
     status.set_wrap(true);
@@ -981,7 +1144,9 @@ fn show_edit_account_page(
     let mode_for_save = mode.clone();
     let algorithm_for_save = algorithm.clone();
     let digits_for_save = digits.clone();
-    let parameter_for_save = parameter.clone();
+    let period_for_save = period.clone();
+    let counter_for_save = counter.clone();
+    let custom_parameter_for_save = custom_parameter.clone();
     let status_for_save = status.clone();
     let save_for_save = save.clone();
 
@@ -991,35 +1156,40 @@ fn show_edit_account_page(
         let secret_text = Zeroizing::new(secret_for_save.text().to_string());
         secret_for_save.set_text("");
 
-        let mode_value = mode_for_save.text().trim().to_ascii_uppercase();
-        let mode = match mode_value.as_str() {
-            "TOTP" | "HOTP" => mode_value,
+        let mode = match mode_for_save.selected() {
+            0 => "TOTP",
+            1 => "HOTP",
             _ => {
                 status_for_save.set_text("Choose TOTP or HOTP as the OTP mode.");
                 return;
             }
         };
 
-        let algorithm = match algorithm_for_save.text().trim().to_ascii_uppercase().as_str() {
-            "SHA1" => OtpAlgorithm::Sha1,
-            "SHA256" => OtpAlgorithm::Sha256,
-            "SHA512" => OtpAlgorithm::Sha512,
+        let algorithm = match algorithm_for_save.selected() {
+            0 => OtpAlgorithm::Sha1,
+            1 => OtpAlgorithm::Sha256,
+            2 => OtpAlgorithm::Sha512,
             _ => {
                 status_for_save.set_text("Choose SHA1, SHA256, or SHA512.");
                 return;
             }
         };
-        let digits = match digits_for_save.text().trim().parse::<u8>() {
-            Ok(value @ 6..=8) => value,
+        let digits = match digits_for_save.selected() {
+            value @ 0..=2 => (value + 6) as u8,
             _ => {
-                status_for_save.set_text("Code length must be 6, 7, or 8 digits.");
+                status_for_save.set_text("Choose a code length of 6, 7, or 8 digits.");
                 return;
             }
         };
-        let parameter = match parameter_for_save.text().trim().parse::<u64>() {
+        let parameter = match selected_parameter(
+            mode_for_save.selected(),
+            period_for_save.selected(),
+            counter_for_save.selected(),
+            custom_parameter_for_save.text().as_str(),
+        ) {
             Ok(value) => value,
-            Err(_) => {
-                status_for_save.set_text("Enter a valid TOTP period or HOTP counter.");
+            Err(message) => {
+                status_for_save.set_text(message);
                 return;
             }
         };
@@ -1509,6 +1679,16 @@ fn unix_time() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parameter_dropdowns_map_presets_and_custom_values() {
+        assert_eq!(selected_parameter(0, 1, 0, ""), Ok(30));
+        assert_eq!(selected_parameter(0, 7, 0, "42"), Ok(42));
+        assert_eq!(selected_parameter(1, 1, 3, ""), Ok(5));
+        assert_eq!(selected_parameter(1, 1, 6, "1234"), Ok(1234));
+        assert!(selected_parameter(0, 7, 0, "not a number").is_err());
+        assert!(selected_parameter(1, 1, 99, "").is_err());
+    }
 
     #[test]
     fn base32_decodes_rfc4648_vectors() {

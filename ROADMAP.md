@@ -48,6 +48,7 @@ Status: **Milestone 5 — Android native frontend (initial vertical slice)**
 - [x] Add manual TOTP account enrollment with Base32 validation and encrypted persistence.
 - [x] Add HOTP enrollment and account search.
 - [x] Add account editing and removal, preserving stable IDs and never displaying existing secrets.
+- [x] Replace OTP mode, algorithm, digit-count, and period/counter free-text controls with dropdown selectors and custom-value support.
 - [x] Lock the vault after five minutes without input and on explicit Lock.
 - [x] Drop the unlocked session and clear account secret entry fields on window close/application shutdown.
 - [x] Build an optimized x86-64 release executable and document system runtime dependencies.
@@ -59,6 +60,7 @@ Status: **Milestone 5 — Android native frontend (initial vertical slice)**
 - [x] Persist HOTP counter advancement before returning a code for copying.
 - [x] Store the Android vault under one noBackupFilesDir/SuikaAuthenticator/ root.
 - [x] Add five-minute inactivity locking, foreground/background session cleanup, and local issuer/account search.
+- [x] Add configurable background auto-lock (immediate, 1, 3, 5, or 10 minutes), persisted under the Android app-private data root.
 - [x] Build and validate installable debug APKs for arm64-v8a and x86_64 in CI.
 - [x] Add account editing and removal with stable IDs, retained secrets by default, and explicit removal confirmation.
 - [ ] Complete broader lifecycle hardening.
