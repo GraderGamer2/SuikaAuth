@@ -318,15 +318,10 @@ fn export_backup(handle: jlong, password: &[u8]) -> Result<Vec<u8>, String> {
         Zeroizing::new(session.vault.plaintext().to_vec())
     };
 
-    Backup::create(&plaintext, password, KdfParams::PRODUCTION)
-        .map_err(|error| error.to_string())
+    Backup::create(&plaintext, password, KdfParams::PRODUCTION).map_err(|error| error.to_string())
 }
 
-fn restore_backup(
-    handle: jlong,
-    encoded_backup: &[u8],
-    password: &[u8],
-) -> Result<usize, String> {
+fn restore_backup(handle: jlong, encoded_backup: &[u8], password: &[u8]) -> Result<usize, String> {
     let handle =
         u64::try_from(handle).map_err(|_| "Native session handle is invalid.".to_owned())?;
     {
@@ -338,10 +333,8 @@ fn restore_backup(
         }
     }
 
-    let plaintext = Backup::restore(encoded_backup, password)
-        .map_err(|error| error.to_string())?;
-    let candidate =
-        AccountDatabase::decode(&plaintext).map_err(|error| error.to_string())?;
+    let plaintext = Backup::restore(encoded_backup, password).map_err(|error| error.to_string())?;
+    let candidate = AccountDatabase::decode(&plaintext).map_err(|error| error.to_string())?;
     let restored_count = candidate.len();
 
     let mut registry = sessions()
@@ -764,9 +757,7 @@ pub extern "system" fn Java_org_suika_suikaauthenticator_NativeBridge_nativeImpo
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_org_suika_suikaauthenticator_NativeBridge_nativeExportBackup<
-    'local,
->(
+pub extern "system" fn Java_org_suika_suikaauthenticator_NativeBridge_nativeExportBackup<'local>(
     mut unowned_env: EnvUnowned<'local>,
     _class: JClass<'local>,
     handle: jlong,

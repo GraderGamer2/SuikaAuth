@@ -6,11 +6,11 @@
 use std::cell::{Cell, RefCell};
 use std::fs;
 use std::io::{Read, Write};
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, TryRecvError};
-use std::os::unix::fs::OpenOptionsExt;
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -1367,7 +1367,11 @@ fn show_backup_export_page(
     password.set_input_purpose(gtk::InputPurpose::Password);
     password.set_max_length(1024);
     password.set_widget_name("suika-secret-entry");
-    let confirmation = labeled_entry(&page, "Confirm backup password", "Re-enter the backup password");
+    let confirmation = labeled_entry(
+        &page,
+        "Confirm backup password",
+        "Re-enter the backup password",
+    );
     confirmation.set_visibility(false);
     confirmation.set_input_purpose(gtk::InputPurpose::Password);
     confirmation.set_max_length(1024);
@@ -1562,7 +1566,11 @@ fn show_backup_restore_page(
     page.append(&warning);
     page.append(&file_label);
 
-    let password = labeled_entry(&page, "Backup password", "Enter the password used for this backup");
+    let password = labeled_entry(
+        &page,
+        "Backup password",
+        "Enter the password used for this backup",
+    );
     password.set_visibility(false);
     password.set_input_purpose(gtk::InputPurpose::Password);
     password.set_max_length(1024);
@@ -1744,7 +1752,9 @@ fn read_backup_file(path: &Path) -> Result<Zeroizing<Vec<u8>>, String> {
     let minimum_bytes = u64::try_from(suika_core::backup::MIN_BACKUP_FILE_BYTES)
         .map_err(|_| "The backup size limit is invalid.".to_owned())?;
     if !metadata.is_file() || metadata.len() > maximum_bytes {
-        return Err("Choose a regular encrypted backup within the supported size limit.".to_owned());
+        return Err(
+            "Choose a regular encrypted backup within the supported size limit.".to_owned(),
+        );
     }
     if metadata.len() < minimum_bytes {
         return Err("The selected backup is malformed or truncated.".to_owned());
@@ -1818,7 +1828,9 @@ fn write_backup_file(path: &Path, encrypted: &[u8]) -> Result<(), String> {
         }
         fs::File::open(parent)
             .and_then(|directory| directory.sync_all())
-            .map_err(|error| format!("Backup file was written, but its directory could not be synced: {error}"))?;
+            .map_err(|error| {
+                format!("Backup file was written, but its directory could not be synced: {error}")
+            })?;
         return Ok(());
     }
 
