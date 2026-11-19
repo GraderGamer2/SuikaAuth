@@ -25,5 +25,13 @@ final class NativeBridge {
         int digits,
         long periodSeconds
     );
+    static native void nativeUpdateAccount(
+        long sessionHandle,
+        String accountIdHex,
+        String issuer,
+        String label,
+        byte[] replacementSecret
+    );
+    static native void nativeRemoveAccount(long sessionHandle, String accountIdHex);
     static native String nativeConsumeHotp(long sessionHandle, String accountIdHex);
 }

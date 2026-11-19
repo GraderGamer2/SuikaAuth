@@ -30,7 +30,7 @@ References: [Android Gradle Plugin API reference (current stable version)](https
 
 The native bridge returns a Java boolean for vault-existence checks and uses JNI exception strings.
 
-The initial Android vertical slice exposes a narrow JNI API for vault existence checks, vault creation, password unlock, account listing, TOTP enrollment, HOTP code consumption, and explicit session locking. HOTP codes are returned only after the counter increment has been encrypted and durably saved. The bridge exposes only display metadata and generated codes, never raw account secrets.
+The initial Android frontend exposes a narrow JNI API for vault existence checks, vault creation, password unlock, account listing, TOTP enrollment, account editing/removal, HOTP code consumption, and explicit session locking. Metadata-only edits never request or expose an existing secret; a blank replacement-secret field retains the current zeroizing core buffer. Removal persists the encrypted account database. HOTP codes are returned only after the incremented counter has been encrypted and saved. The bridge exposes only display metadata and generated codes, never raw account secrets.
 
 The remaining JNI work covers:
 

@@ -179,6 +179,79 @@ fn add_totp(
     persist_candidate(session, candidate)
 }
 
+fn update_account(
+    handle: jlong,
+    encoded_id: &str,
+    issuer: String,
+    label: String,
+    encoded_secret: &[u8],
+) -> Result<(), String> {
+    let handle =
+        u64::try_from(handle).map_err(|_| "Native session handle is invalid.".to_owned())?;
+    let account_id = parse_account_id(encoded_id)?;
+    let replacement_secret = if encoded_secret.is_empty() {
+        None
+    } else {
+        let encoded = Zeroizing::new(
+            std::str::from_utf8(encoded_secret)
+                .map_err(|_| "The Base32 secret is not valid UTF-8.".to_owned())?
+                .to_owned(),
+        );
+        Some(decode_base32(&encoded).map_err(|error| error.to_string())?)
+    };
+
+    let mut registry = sessions()
+        .lock()
+        .map_err(|_| "Native session registry is unavailable.".to_owned())?;
+    let session = registry
+        .get_mut(&handle)
+        .ok_or_else(|| "The native vault session is no longer active.".to_owned())?;
+
+    let candidate_bytes = session
+        .accounts
+        .encode()
+        .map_err(|error| error.to_string())?;
+    let mut candidate =
+        AccountDatabase::decode(&candidate_bytes).map_err(|error| error.to_string())?;
+
+    let account = candidate
+        .get_mut(&account_id)
+        .ok_or_else(|| "The authenticator account no longer exists.".to_owned())?;
+    let algorithm = account.algorithm();
+    let digits = account.digits();
+    let mode = account.mode();
+    account
+        .update(issuer, label, replacement_secret, algorithm, digits, mode)
+        .map_err(|error| error.to_string())?;
+
+    persist_candidate(session, candidate)
+}
+
+fn remove_account(handle: jlong, encoded_id: &str) -> Result<(), String> {
+    let handle =
+        u64::try_from(handle).map_err(|_| "Native session handle is invalid.".to_owned())?;
+    let account_id = parse_account_id(encoded_id)?;
+
+    let mut registry = sessions()
+        .lock()
+        .map_err(|_| "Native session registry is unavailable.".to_owned())?;
+    let session = registry
+        .get_mut(&handle)
+        .ok_or_else(|| "The native vault session is no longer active.".to_owned())?;
+
+    let candidate_bytes = session
+        .accounts
+        .encode()
+        .map_err(|error| error.to_string())?;
+    let mut candidate =
+        AccountDatabase::decode(&candidate_bytes).map_err(|error| error.to_string())?;
+    if !candidate.remove(&account_id) {
+        return Err("The authenticator account no longer exists.".to_owned());
+    }
+
+    persist_candidate(session, candidate)
+}
+
 fn parse_account_id(encoded: &str) -> Result<[u8; 16], String> {
     let bytes = encoded.as_bytes();
     if bytes.len() != 32 {
@@ -431,6 +504,48 @@ pub extern "system" fn Java_org_suika_suikaauthenticator_NativeBridge_nativeAddT
 }
 
 #[unsafe(no_mangle)]
+pub extern "system" fn Java_org_suika_suikaauthenticator_NativeBridge_nativeUpdateAccount<'local>(
+    mut unowned_env: EnvUnowned<'local>,
+    _class: JClass<'local>,
+    handle: jlong,
+    account_id: JString<'local>,
+    issuer: JString<'local>,
+    label: JString<'local>,
+    encoded_secret: JByteArray<'local>,
+) {
+    unowned_env
+        .with_env(|env| -> jni::errors::Result<()> {
+            let account_id = account_id.try_to_string(env)?;
+            let issuer = issuer.try_to_string(env)?;
+            let label = label.try_to_string(env)?;
+            let encoded_secret = Zeroizing::new(env.convert_byte_array(&encoded_secret)?);
+            match update_account(handle, &account_id, issuer, label, &encoded_secret) {
+                Ok(()) => Ok(()),
+                Err(message) => throw_state_error(env, &message),
+            }
+        })
+        .resolve::<ThrowRuntimeExAndDefault>()
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_org_suika_suikaauthenticator_NativeBridge_nativeRemoveAccount<'local>(
+    mut unowned_env: EnvUnowned<'local>,
+    _class: JClass<'local>,
+    handle: jlong,
+    account_id: JString<'local>,
+) {
+    unowned_env
+        .with_env(|env| -> jni::errors::Result<()> {
+            let account_id = account_id.try_to_string(env)?;
+            match remove_account(handle, &account_id) {
+                Ok(()) => Ok(()),
+                Err(message) => throw_state_error(env, &message),
+            }
+        })
+        .resolve::<ThrowRuntimeExAndDefault>()
+}
+
+#[unsafe(no_mangle)]
 pub extern "system" fn Java_org_suika_suikaauthenticator_NativeBridge_nativeConsumeHotp<'local>(
     mut unowned_env: EnvUnowned<'local>,
     _class: JClass<'local>,
@@ -473,6 +588,127 @@ mod tests {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.0);
         }
+    }
+
+    #[test]
+    fn account_edit_and_removal_are_encrypted_and_preserve_private_state() {
+        let temporary = TestDirectory::new();
+        let store =
+            VaultStore::open(temporary.0.join(APP_DIRECTORY)).expect("vault store should open");
+        let mut accounts = AccountDatabase::new();
+        let mut account = Account::new_totp(
+            "Original issuer",
+            "original account",
+            Zeroizing::new(b"12345678901234567890".to_vec()),
+            OtpAlgorithm::Sha1,
+            6,
+            30,
+        )
+        .expect("TOTP account should be valid");
+        account
+            .set_group(Some("Personal".to_owned()))
+            .expect("account group should be set");
+        account.set_favorite(true);
+        let original_id = *account.id();
+        let encoded_id = account
+            .id()
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>();
+        let original_code = account.generate_code(59).expect("original code should generate");
+        accounts.insert(account).expect("account should insert");
+
+        let plaintext = accounts.encode().expect("account database should encode");
+        let params = KdfParams::new(64 * 1024, 1, 1).expect("test KDF profile");
+        let (serialized, vault) = Vault::create_session(&plaintext, b"test password", params)
+            .expect("encrypted vault and unlocked session should be created");
+        store
+            .save_new(&serialized)
+            .expect("initial vault should be saved");
+        let handle = insert_session(NativeSession {
+            store,
+            vault,
+            accounts,
+        })
+        .expect("native session handle should be allocated");
+
+        update_account(
+            handle as jlong,
+            &encoded_id,
+            "Renamed issuer".to_owned(),
+            "renamed account".to_owned(),
+            b"",
+        )
+        .expect("metadata-only edit should retain the existing secret");
+        {
+            let registry = sessions()
+                .lock()
+                .expect("session registry should remain available");
+            let account = registry
+                .get(&handle)
+                .expect("native session should remain active")
+                .accounts
+                .accounts()[0];
+            assert_eq!(account.id(), &original_id);
+            assert_eq!(account.issuer(), "Renamed issuer");
+            assert_eq!(account.label(), "renamed account");
+            assert_eq!(account.group(), Some("Personal"));
+            assert!(account.is_favorite());
+            assert_eq!(
+                account.generate_code(59).expect("existing secret should remain"),
+                original_code
+            );
+        }
+
+        update_account(
+            handle as jlong,
+            &encoded_id,
+            "Replacement issuer".to_owned(),
+            "replacement account".to_owned(),
+            b"JBSWY3DPEHPK3PXP",
+        )
+        .expect("a replacement Base32 secret should be accepted");
+        {
+            let registry = sessions()
+                .lock()
+                .expect("session registry should remain available");
+            let account = registry
+                .get(&handle)
+                .expect("native session should remain active")
+                .accounts
+                .accounts()[0];
+            assert_eq!(account.id(), &original_id);
+            assert_eq!(account.algorithm(), OtpAlgorithm::Sha1);
+            assert_eq!(account.digits(), 6);
+            assert_eq!(account.mode(), AccountMode::Totp { period_seconds: 30 });
+            assert_ne!(
+                account
+                    .generate_code(59)
+                    .expect("replacement secret should generate"),
+                original_code
+            );
+        }
+
+        remove_account(handle as jlong, &encoded_id)
+            .expect("account removal should persist");
+        let mut registry = sessions()
+            .lock()
+            .expect("session registry should remain available");
+        let session = registry
+            .remove(&handle)
+            .expect("test session should still exist");
+        assert!(session.accounts.is_empty());
+        let persisted = Vault::unlock(
+            &session
+                .store
+                .load()
+                .expect("updated encrypted vault should load"),
+            b"test password",
+        )
+        .expect("updated vault should unlock");
+        let persisted_accounts = AccountDatabase::decode(persisted.plaintext())
+            .expect("persisted account database should decode");
+        assert!(persisted_accounts.is_empty());
     }
 
     #[test]

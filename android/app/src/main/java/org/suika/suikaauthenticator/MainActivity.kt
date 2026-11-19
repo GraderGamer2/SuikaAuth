@@ -1,6 +1,7 @@
 package org.suika.suikaauthenticator
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -308,12 +309,134 @@ class MainActivity : Activity() {
             card.addView(title)
             card.addView(value)
             card.addView(type)
+
+            val actions = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                setPadding(0, dp(8), 0, 0)
+            }
+            val edit = Button(this).apply {
+                text = "Edit"
+                setOnClickListener {
+                    showEditAccountDialog(handle, accountId, issuer, label)
+                }
+            }
+            val remove = Button(this).apply {
+                text = "Remove"
+                setOnClickListener {
+                    confirmRemoveAccount(handle, accountId, label)
+                }
+            }
+            actions.addView(edit, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+            actions.addView(remove, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+            card.addView(actions)
+
             card.setOnClickListener {
                 if (kind.startsWith("HOTP")) consumeAndCopyHotp(handle, accountId, label)
                 else copyCode(code, label)
             }
             accountList.addView(card, matchWidthWrapHeight().apply { bottomMargin = dp(10) })
         }
+    }
+
+    private fun showEditAccountDialog(
+        handle: Long,
+        accountId: String,
+        currentIssuer: String,
+        currentLabel: String
+    ) {
+        val form = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(8), dp(20), 0)
+        }
+        val issuerField = EditText(this).apply {
+            hint = "Issuer (optional)"
+            setText(currentIssuer)
+            isSingleLine = true
+            isSaveEnabled = false
+        }
+        val labelField = EditText(this).apply {
+            hint = "Account name"
+            setText(currentLabel)
+            isSingleLine = true
+            isSaveEnabled = false
+        }
+        val replacementSecret = EditText(this).apply {
+            hint = "Replacement Base32 secret (optional)"
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or
+                android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+            isSingleLine = true
+            isSaveEnabled = false
+            importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_NO
+        }
+        form.addView(issuerField, matchWidthWrapHeight())
+        form.addView(labelField, matchWidthWrapHeight())
+        form.addView(replacementSecret, matchWidthWrapHeight())
+
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("Edit authenticator")
+            .setView(form)
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Save", null)
+            .create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val updatedLabel = labelField.text.toString().trim()
+                if (updatedLabel.isEmpty()) {
+                    status.text = "Enter an account name."
+                    return@setOnClickListener
+                }
+                val updatedIssuer = issuerField.text.toString()
+                val secretBytes = replacementSecret.text.toString()
+                    .trim()
+                    .toByteArray(StandardCharsets.US_ASCII)
+                replacementSecret.text?.clear()
+                dialog.dismiss()
+                worker.execute {
+                    val result = runCatching {
+                        NativeBridge.nativeUpdateAccount(
+                            handle,
+                            accountId,
+                            updatedIssuer,
+                            updatedLabel,
+                            secretBytes
+                        )
+                    }
+                    secretBytes.fill(0)
+                    runOnUiThread {
+                        if (activeHandle == handle) {
+                            result.onSuccess {
+                                status.text = "Account updated and encrypted."
+                                refreshAccountsNow()
+                            }.onFailure { showError(it) }
+                        }
+                    }
+                }
+            }
+        }
+        dialog.show()
+    }
+
+    private fun confirmRemoveAccount(handle: Long, accountId: String, label: String) {
+        AlertDialog.Builder(this)
+            .setTitle("Remove authenticator")
+            .setMessage("Remove ‘$label’? Its secret will be removed from the encrypted vault.")
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Remove") { _, _ ->
+                worker.execute {
+                    val result = runCatching {
+                        NativeBridge.nativeRemoveAccount(handle, accountId)
+                    }
+                    runOnUiThread {
+                        if (activeHandle == handle) {
+                            result.onSuccess {
+                                status.text = "Account removed from the encrypted vault."
+                                refreshAccountsNow()
+                            }.onFailure { showError(it) }
+                        }
+                    }
+                }
+            }
+            .show()
     }
 
     private fun consumeAndCopyHotp(handle: Long, accountId: String, label: String) {

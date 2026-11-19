@@ -60,7 +60,8 @@ Status: **Milestone 5 — Android native frontend (initial vertical slice)**
 - [x] Store the Android vault under one noBackupFilesDir/SuikaAuthenticator/ root.
 - [x] Add five-minute inactivity locking, foreground/background session cleanup, and local issuer/account search.
 - [x] Build and validate installable debug APKs for arm64-v8a and x86_64 in CI.
-- [ ] Complete account editing/removal and broader lifecycle hardening.
+- [x] Add account editing and removal with stable IDs, retained secrets by default, and explicit removal confirmation.
+- [ ] Complete broader lifecycle hardening.
 - [ ] Add Android Keystore / BiometricPrompt device-bound DEK unlock and enrollment-change handling.
 
 ## 6. Enrollment and migration

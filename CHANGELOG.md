@@ -3,6 +3,8 @@
 All notable project changes will be recorded here.
 
 ## Unreleased
+- Added Android account editing and removal through the shared Rust core. Metadata edits preserve stable IDs, OTP algorithm/digits/mode, groups, favorites, and existing secrets when the replacement-secret field is left blank; removal requires UI confirmation and commits encrypted state.
+- Added native regression coverage for metadata-only edits, optional Base32 secret replacement, stable-ID/configuration preservation, and persisted account removal.
 - Corrected the Android JNI lockfile's `walkdir 2.5.0` checksum to match Cargo's generated lockfile from the successful debug APK artifact; the next CI run verifies `--locked` resolution end to end.
 - Committed the Android JNI workspace's Cargo-generated lockfile from the successful dual-ABI build and made Android JNI tests, strict Clippy, and release cross-compilation use `--locked`.
 - Replaced the fixed-size Base32 account-ID `chunks_exact` decoder with indexed decoding after Rust 1.100 strict Clippy flagged the iterator pattern; the 32-character input check still guarantees all 16 byte pairs are in bounds.
