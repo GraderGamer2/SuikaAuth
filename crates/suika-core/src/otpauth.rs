@@ -115,8 +115,7 @@ pub fn parse_otpauth_uri(uri: &str) -> Result<Account, OtpAuthError> {
     if secret_text.is_empty() {
         return Err(OtpAuthError::InvalidSecret);
     }
-    let secret =
-        decode_base32(secret_text.as_str()).map_err(|_| OtpAuthError::InvalidSecret)?;
+    let secret = decode_base32(secret_text.as_str()).map_err(|_| OtpAuthError::InvalidSecret)?;
     if !(MIN_SECRET_BYTES..=MAX_SECRET_BYTES).contains(&secret.len()) {
         return Err(OtpAuthError::InvalidSecret);
     }
