@@ -20,11 +20,11 @@ The initial Android package will ship two 64-bit ABIs:
 - `arm64-v8a` — physical ARM64 Android devices.
 - `x86_64` — Android emulators and x86-64 devices.
 
-Android expects native libraries inside the APK at `lib/<abi>/lib<name>.so`. Build the Rust shared library with `cargo-ndk`, placing the results under `android/app/src/main/jniLibs/`. Use explicit target/API-level inputs. CI pins the Rust stable toolchain, NDK 28.2.13676358, cargo-ndk 4.1.2, Gradle 9.8.2, and the Android Gradle Plugin 9.6.0.
+Android expects native libraries inside the APK at `lib/<abi>/lib<name>.so`. Build the Rust shared library with `cargo-ndk`, placing the results under `android/app/src/main/jniLibs/`. Use explicit target/API-level inputs. CI pins the Rust stable toolchain, NDK 28.2.13676358, cargo-ndk 4.1.2, Gradle 9.6.0, and the current stable Android Gradle Plugin 9.4.1.
 
-The initial Android build baseline is Android Gradle Plugin 9.6.0 with Gradle 9.8.2, SDK Build Tools 36.0.0, NDK 28.2.13676358, and JDK 17. The AGP 9.6.0 compatibility table lists these exact minimum/default tool versions and supports up to API level 37. The project currently targets the stable API 36 SDK package because the runner's SDK package feed does not yet publish platforms;android-37. AGP 9 enables built-in Kotlin support, so do not also apply `org.jetbrains.kotlin.android` to the application module. The CI workflow pins Gradle 9.8.2 and installs the SDK/NDK packages explicitly.
+The initial Android build baseline uses the current stable Android Gradle Plugin 9.4.1, with Gradle 9.6.0, SDK Build Tools 36.0.0, NDK 28.2.13676358, and JDK 17. Android's AGP API reference lists 9.4.1 as the current stable release; the AGP 9.4 compatibility notes specify Gradle 9.6.0, Build Tools 36.0.0, NDK 28.2.13676358, JDK 17, and support through API level 37. The project currently targets API 36 because that stable SDK package is available from the runner's SDK feed. AGP 9 has built-in Kotlin support, so do not also apply `org.jetbrains.kotlin.android` to the application module. The CI workflow pins Gradle 9.6.0 and installs the SDK/NDK packages explicitly.
 
-References: [AGP 9.6.0 compatibility notes](https://developer.android.com/build/releases/agp-9-6-0-release-notes) and [Migrate to built-in Kotlin](https://developer.android.com/build/migrate-to-built-in-kotlin).
+References: [Android Gradle Plugin API reference (current stable version)](https://developer.android.com/reference/tools/gradle-api), [AGP 9.4.0 compatibility notes](https://developer.android.com/build/releases/agp-9-4-0-release-notes), and [Migrate to built-in Kotlin](https://developer.android.com/build/migrate-to-built-in-kotlin).
 
 ## Rust/Kotlin boundary
 

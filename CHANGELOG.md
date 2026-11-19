@@ -3,11 +3,12 @@
 All notable project changes will be recorded here.
 
 ## Unreleased
+- Replaced the unresolvable AGP 9.6.0 preview pin with current stable AGP 9.4.1 and its compatible Gradle 9.6.0 release; retained API 36, Build Tools 36.0.0, NDK 28.2.13676358, and JDK 17.
 - Corrected `jni` 0.22.4 exception-string and `jboolean` API usage, and made both NDK environment variables point to the pinned 28.2.13676358 installation during Android cross-compilation.
-- Switched the initial Android compile/target SDK to API 36 after CI confirmed the runner package feed does not yet publish platforms;android-37. AGP remains pinned at 9.6.0.
+- Switched the initial Android compile/target SDK to API 36 after CI confirmed the runner package feed does not yet publish platforms;android-37. the stable AGP baseline is 9.4.1.
 - Added the first native Android application using platform Views and a separate Rust JNI Cargo workspace. The initial screen supports encrypted-vault creation/unlock, TOTP account listing/enrollment, explicit lock, background lock, and five-minute inactivity lock.
-- Added Android JNI build steps for arm64-v8a and x86_64 using pinned AGP 9.6.0 / Gradle 9.8.2 / NDK 28.2.13676358 / cargo-ndk 4.1.2.
-- Updated Android toolchain documentation against the official AGP 9.6.0 compatibility table; corrected its Gradle requirement to 9.8.2.
+- Added Android JNI build steps for arm64-v8a and x86_64 using pinned stable AGP 9.4.1 / Gradle 9.6.0 / NDK 28.2.13676358 / cargo-ndk 4.1.2.
+- Corrected the Android plugin pin to the actually published stable AGP 9.4.1 and its Gradle 9.6.0 compatibility pair after CI showed AGP 9.6.0 was not resolvable because it is a preview line.
 - Collapsed the GTK secret-entry cleanup condition to satisfy strict Clippy on the stable Rust toolchain without changing traversal or cleanup behavior.
 - Raised the bounded Base32 data-character ceiling to 208 so structurally complete over-sized inputs reach the decoded-byte limit check rather than being misclassified as malformed length.
 
