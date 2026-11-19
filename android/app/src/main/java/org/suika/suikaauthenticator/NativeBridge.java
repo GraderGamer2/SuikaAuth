@@ -1,8 +1,8 @@
 package org.suika.suikaauthenticator;
 
 /**
- * Narrow JNI boundary. Password and encoded secret byte arrays are cleared by
- * the caller after each synchronous native operation.
+ * Narrow JNI boundary. Password, export, URI, and encoded secret byte arrays
+ * are cleared by the caller after each synchronous native operation.
  */
 final class NativeBridge {
     static {
@@ -19,6 +19,11 @@ final class NativeBridge {
     static native void nativeLockVault(long sessionHandle);
     static native String[] nativeListAccounts(long sessionHandle);
     static native void nativeImportOtpAuthUri(long sessionHandle, byte[] encodedUri);
+    static native String nativeImportAegisExport(
+        long sessionHandle,
+        byte[] encodedExport,
+        byte[] password
+    );
     static native void nativeAddTotp(
         long sessionHandle,
         String issuer,

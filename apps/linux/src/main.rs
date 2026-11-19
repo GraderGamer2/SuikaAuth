@@ -5,6 +5,7 @@
 
 use std::cell::{Cell, RefCell};
 use std::fs;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::mpsc::{self, TryRecvError};
@@ -20,6 +21,7 @@ use gtk::{
     ListBoxRow, Orientation, ScrolledWindow, Spinner, Stack,
 };
 use suika_core::accounts::{Account, AccountDatabase, AccountMode};
+use suika_core::aegis::{AegisImportResult, import_aegis_export};
 use suika_core::base32::decode_base32;
 use suika_core::crypto::KdfParams;
 use suika_core::otp::OtpAlgorithm;
@@ -1081,6 +1083,239 @@ fn decode_otpauth_qr_image(path: &Path) -> Result<Zeroizing<String>, String> {
         .ok_or_else(|| "No valid otpauth:// QR code was found in the selected image.".to_owned())
 }
 
+fn show_aegis_import_page(
+    stack: &Stack,
+    window: &ApplicationWindow,
+    directory: PathBuf,
+    unlocked: Rc<RefCell<Option<AuthenticatedVault>>>,
+    path: PathBuf,
+) {
+    let page = GtkBox::new(Orientation::Vertical, 14);
+    page.set_margin_top(28);
+    page.set_margin_bottom(28);
+    page.set_margin_start(28);
+    page.set_margin_end(28);
+
+    let title = Label::new(Some("Import Aegis export"));
+    title.add_css_class("title-1");
+    title.set_xalign(0.0);
+    let description = Label::new(Some(
+        "Import a plaintext or password-encrypted Aegis JSON export. Leave the password blank for plaintext exports. Only standard TOTP/HOTP entries are imported; unsupported Aegis token types are skipped.",
+    ));
+    description.set_wrap(true);
+    description.set_xalign(0.0);
+    description.add_css_class("dim-label");
+
+    let filename = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("Aegis export");
+    let file_label = Label::new(Some(&format!("Selected file: {filename}")));
+    file_label.set_xalign(0.0);
+    file_label.set_ellipsize(gtk::pango::EllipsizeMode::Middle);
+
+    let password = labeled_entry(
+        &page,
+        "Aegis export password (optional)",
+        "Leave blank for an unencrypted export",
+    );
+    password.set_visibility(false);
+    password.set_input_purpose(gtk::InputPurpose::Password);
+    password.set_widget_name("suika-secret-entry");
+    password.set_max_length(4096);
+
+    let status = Label::new(None);
+    status.set_wrap(true);
+    status.set_xalign(0.0);
+    let buttons = GtkBox::new(Orientation::Horizontal, 8);
+    let cancel = Button::with_label("Cancel");
+    let import = Button::with_label("Import accounts");
+    import.add_css_class("suggested-action");
+    import.set_hexpand(true);
+    buttons.append(&cancel);
+    buttons.append(&import);
+
+    page.append(&title);
+    page.append(&description);
+    page.append(&file_label);
+    page.append(&status);
+    page.append(&buttons);
+
+    let stack_weak = stack.downgrade();
+    let window_weak = window.downgrade();
+    let directory_for_cancel = directory.clone();
+    let unlocked_for_cancel = unlocked.clone();
+    let password_for_cancel = password.clone();
+    cancel.connect_clicked(move |_| {
+        password_for_cancel.set_text("");
+        if let (Some(stack), Some(window)) = (stack_weak.upgrade(), window_weak.upgrade()) {
+            show_accounts_page(
+                &stack,
+                &window,
+                directory_for_cancel.clone(),
+                unlocked_for_cancel.clone(),
+            );
+        }
+    });
+
+    let status_for_import = status.clone();
+    let import_for_import = import.clone();
+    let password_for_import = password.clone();
+    let directory_for_import = directory.clone();
+    let unlocked_for_import = unlocked.clone();
+    let stack_weak = stack.downgrade();
+    let window_weak = window.downgrade();
+    import.connect_clicked(move |_| {
+        let password_value = Zeroizing::new(password_for_import.text().as_bytes().to_vec());
+        password_for_import.set_text("");
+        import_for_import.set_sensitive(false);
+        status_for_import.set_text("Reading, validating, and importing the export…");
+
+        let path = path.clone();
+        let (sender, receiver) = mpsc::sync_channel(1);
+        let worker = thread::Builder::new()
+            .name("suika-aegis-import".to_owned())
+            .spawn(move || {
+                let result = load_aegis_export(&path, password_value.as_slice());
+                let _ = sender.send(result);
+            });
+        if let Err(error) = worker {
+            import_for_import.set_sensitive(true);
+            status_for_import.set_text(&format!("Could not start the import worker: {error}"));
+            return;
+        }
+
+        let mut completed = Some(move |result: Result<AegisImportResult, String>| {
+            import_for_import.set_sensitive(true);
+            match result {
+                Ok(imported_accounts) => {
+                    match persist_aegis_import(
+                        &unlocked_for_import,
+                        &directory_for_import,
+                        imported_accounts,
+                    ) {
+                        Ok((imported, skipped)) => {
+                            if let (Some(stack), Some(window)) =
+                                (stack_weak.upgrade(), window_weak.upgrade())
+                            {
+                                show_accounts_page(
+                                    &stack,
+                                    &window,
+                                    directory_for_import.clone(),
+                                    unlocked_for_import.clone(),
+                                );
+                                show_message_dialog(
+                                    &window,
+                                    "Aegis import complete",
+                                    &format!(
+                                        "Imported {imported} standard TOTP/HOTP account(s). Skipped {skipped} unsupported entry/entries. The imported accounts are now stored in your encrypted vault."
+                                    ),
+                                );
+                            }
+                        }
+                        Err(message) => status_for_import.set_text(&message),
+                    }
+                }
+                Err(message) => status_for_import.set_text(&message),
+            }
+        });
+        glib::source::timeout_add_local(Duration::from_millis(100), move || {
+            match receiver.try_recv() {
+                Ok(result) => {
+                    if let Some(callback) = completed.take() {
+                        callback(result);
+                    }
+                    ControlFlow::Break
+                }
+                Err(TryRecvError::Empty) => ControlFlow::Continue,
+                Err(TryRecvError::Disconnected) => {
+                    if let Some(callback) = completed.take() {
+                        callback(Err("The Aegis import worker stopped unexpectedly.".to_owned()));
+                    }
+                    ControlFlow::Break
+                }
+            }
+        });
+    });
+
+    replace_page(stack, "aegis-import", &page);
+}
+
+fn load_aegis_export(path: &Path, password: &[u8]) -> Result<AegisImportResult, String> {
+    const MAX_EXPORT_BYTES: u64 = 16 * 1024 * 1024;
+    let metadata = fs::metadata(path).map_err(|_| "The selected Aegis export could not be opened.")?;
+    if !metadata.is_file() || metadata.len() > MAX_EXPORT_BYTES {
+        return Err("Choose a regular Aegis JSON export no larger than 16 MiB.".to_owned());
+    }
+    let file = fs::File::open(path)
+        .map_err(|_| "The selected Aegis export could not be read.")?;
+    let mut input = Zeroizing::new(Vec::with_capacity(metadata.len() as usize));
+    let bytes_read = file
+        .take(metadata.len())
+        .read_to_end(&mut input)
+        .map_err(|_| "The selected Aegis export could not be read.")?;
+    if bytes_read as u64 != metadata.len() {
+        return Err("The selected Aegis export changed while it was being read.".to_owned());
+    }
+
+    import_aegis_export(
+        &input,
+        if password.is_empty() { None } else { Some(password) },
+    )
+    .map_err(|error| error.to_string())
+}
+
+fn persist_aegis_import(
+    unlocked: &Rc<RefCell<Option<AuthenticatedVault>>>,
+    directory: &Path,
+    imported: AegisImportResult,
+) -> Result<(usize, usize), String> {
+    let imported_count = imported.accounts.len();
+    let skipped = imported.skipped_unsupported;
+    if imported_count == 0 {
+        return Err(if skipped == 0 {
+            "The Aegis export contains no accounts.".to_owned()
+        } else {
+            format!("No supported TOTP/HOTP accounts were found; {skipped} unsupported entries were skipped.")
+        });
+    }
+
+    let mut guard = unlocked.borrow_mut();
+    let vault = guard
+        .as_mut()
+        .ok_or_else(|| "The vault is locked. Unlock it before importing accounts.".to_owned())?;
+
+    let existing = vault.accounts.encode().map_err(|error| error.to_string())?;
+    let mut candidate =
+        AccountDatabase::decode(&existing).map_err(|error| error.to_string())?;
+    for account in imported.accounts {
+        candidate.insert(account).map_err(|error| error.to_string())?;
+    }
+
+    let store = VaultStore::open(directory).map_err(|error| error.to_string())?;
+    let candidate_plaintext = candidate.encode().map_err(|error| error.to_string())?;
+    let previous_plaintext = Zeroizing::new(vault.session.plaintext().to_vec());
+    vault
+        .session
+        .replace_plaintext(candidate_plaintext)
+        .map_err(|error| error.to_string())?;
+
+    let encrypted = match vault.session.seal_current() {
+        Ok(encrypted) => encrypted,
+        Err(error) => {
+            let _ = vault.session.replace_plaintext(previous_plaintext);
+            return Err(error.to_string());
+        }
+    };
+    if let Err(error) = store.save(&encrypted) {
+        let _ = vault.session.replace_plaintext(previous_plaintext);
+        return Err(error.to_string());
+    }
+
+    vault.accounts = candidate;
+    Ok((imported_count, skipped))
+}
+
 fn persist_vault(vault: &mut AuthenticatedVault, directory: &Path) -> Result<(), String> {
     let plaintext = vault.accounts.encode().map_err(|error| error.to_string())?;
     vault
@@ -1542,7 +1777,7 @@ fn show_accounts_page(
     directory: PathBuf,
     unlocked: Rc<RefCell<Option<AuthenticatedVault>>>,
 ) {
-    for name in ["add-account", "edit-account"] {
+    for name in ["add-account", "edit-account", "aegis-import"] {
         if let Some(form_page) = stack.child_by_name(name) {
             stack.remove(&form_page);
         }
@@ -1560,9 +1795,11 @@ fn show_accounts_page(
     title.set_hexpand(true);
     title.set_xalign(0.0);
     let add = Button::with_label("Add account");
+    let import_aegis = Button::with_label("Import Aegis");
     let lock = Button::with_label("Lock");
     header.append(&title);
     header.append(&add);
+    header.append(&import_aegis);
     header.append(&lock);
     page.append(&header);
 
@@ -1577,6 +1814,55 @@ fn show_accounts_page(
                 &window,
                 directory_for_add.clone(),
                 unlocked_for_add.clone(),
+            );
+        }
+    });
+
+    let stack_for_import = stack.downgrade();
+    let window_for_import = window.downgrade();
+    let directory_for_import = directory.clone();
+    let unlocked_for_import = unlocked.clone();
+    import_aegis.connect_clicked(move |_| {
+        let file_dialog = gtk::FileDialog::builder()
+            .title("Import Aegis export")
+            .accept_label("Open")
+            .modal(true)
+            .build();
+        let stack_weak = stack_for_import.clone();
+        let window_weak = window_for_import.clone();
+        let directory_for_file = directory_for_import.clone();
+        let unlocked_for_file = unlocked_for_import.clone();
+        let dialog_parent = window_for_import.upgrade();
+        if let Some(parent) = dialog_parent {
+            file_dialog.open(
+                Some(&parent),
+                None::<&gio::Cancellable>,
+                move |result| {
+                    let Ok(file) = result else {
+                        return;
+                    };
+                    let Some(path) = file.path() else {
+                        if let Some(window) = window_weak.upgrade() {
+                            show_message_dialog(
+                                &window,
+                                "Import unavailable",
+                                "Choose a local Aegis JSON export.",
+                            );
+                        }
+                        return;
+                    };
+                    if let (Some(stack), Some(window)) =
+                        (stack_weak.upgrade(), window_weak.upgrade())
+                    {
+                        show_aegis_import_page(
+                            &stack,
+                            &window,
+                            directory_for_file.clone(),
+                            unlocked_for_file.clone(),
+                            path,
+                        );
+                    }
+                },
             );
         }
     });

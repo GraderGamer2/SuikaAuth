@@ -2,20 +2,23 @@
 
 SuikaAuthenticator keeps the shared security core small and platform-independent. Dependencies are exact-pinned to reviewed direct versions and enabled features are kept narrow.
 
-## Initial direct dependencies
+## Direct dependencies
 
 | Crate | Pinned version | Purpose |
 |---|---:|---|
 | argon2 | 0.6.0 | Argon2id key derivation |
-| chacha20poly1305 | 0.11.0 | XChaCha20-Poly1305 |
+| aes-gcm | 0.11.1 | AES-256-GCM decryption for Aegis exports |
+| base64 | 0.22.1 | Decode Aegis encrypted database payloads |
+| chacha20poly1305 | 0.11.0 | XChaCha20-Poly1305 vault encryption |
 | getrandom | 0.4.3 | Operating-system cryptographic randomness |
 | hmac | 0.13.0 | HMAC composition for OTP |
+| scrypt | 0.12.0 | Derive Aegis export password-slot keys |
+| serde | 1.0.229 | Bounded typed parsing of Aegis export records |
+| serde_json | 1.0.154 | Parse Aegis JSON export files |
 | sha1 | 0.11.0 | HMAC-SHA-1 compatibility |
 | sha2 | 0.11.1 | HMAC-SHA-256 and HMAC-SHA-512 |
 | zeroize | 1.9.0 | Clear sensitive buffers |
 | gtk4 | 0.10.3 | Native GTK4 Linux interface (frontend only) |
-| gdk-pixbuf | 0.21.5 | Local Linux image loading and QR image decoding (frontend only) |
-| quircs | 0.10.3 | Pure-Rust Linux QR detection/decoding (frontend only) |
 | gdk-pixbuf | 0.21.5 | Local Linux image loading and bounded QR image decoding (frontend only) |
 | quircs | 0.10.3 | Pure-Rust Linux QR detection/decoding (frontend only) |
 
@@ -26,7 +29,9 @@ All listed cryptographic implementations are pure Rust. The direct versions are 
 - Disable default features when they are not required.
 - Do not enable Argon2's optional parallel/Rayon feature in the initial core.
 - Do not enable password-hash PHC string support when only raw key derivation is needed.
-- Do not enable QR generation, URL parsing, image processing, HTTP, or general-purpose serialization frameworks in the security core. Account records use a small, explicitly versioned binary codec.
+- The internal account database and vault remain on the small, explicitly versioned binary format; do not replace that format with a general-purpose serializer.
+- The only JSON dependency in `suika-core` is the bounded Aegis import parser. It does not serialize internal vault state, read remote content, or enter the runtime account-generation path.
+- QR image decoding stays in the Linux frontend; Android camera and barcode libraries stay in the Android UI.
 - CI runs cargo tree --workspace -e features so the complete enabled dependency feature tree is visible in each successful Rust-core build. Review this output whenever dependencies or features change.
 
 ## Rejected by default
@@ -52,3 +57,10 @@ GTK4 0.10.3 is an exact-pinned Linux-only Rust binding and belongs only to the f
 - Android pins CameraX 1.7.0 (`camera-camera2`, `camera-lifecycle`, `camera-view`) for camera preview and frame analysis.
 - Android pins `com.google.mlkit:barcode-scanning:17.3.0`, the bundled-model artifact. The QR model is packaged in the APK; scanning does not depend on a first-run network download. The dependency is configured for QR format only.
 - Android camera permission is requested on demand from the QR scanner action, and camera hardware remains an optional device feature.
+
+
+## Aegis migration dependencies
+
+- `aes-gcm` 0.11.1, `base64` 0.22.1, and `scrypt` 0.12.0 are used only to decrypt local Aegis JSON exports. The importer caps the export at 16 MiB, the decrypted database at 8 MiB, password slots at four, and scrypt memory at 128 MiB.
+- `serde` 1.0.229 and `serde_json` 1.0.154 parse the external Aegis format into bounded, typed records. A custom secret field deserializer wraps each Base32 secret in a zeroizing allocation. The source JSON, decrypted database, Base64 ciphertext, KDF output, and converted secret buffers are zeroized where practical.
+- Aegis import is offline. No cloud API, remote vault, or account sync dependency is introduced. The imported account records are re-encoded with the existing Suika binary database and encrypted using the existing Suika vault.

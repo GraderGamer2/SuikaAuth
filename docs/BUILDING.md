@@ -2,7 +2,7 @@
 
 ## Current Rust core and Linux frontend
 
-The repository contains a Rust workspace with the shared suika-core library and GTK4 Linux frontend. It includes TOTP/HOTP primitives, zeroizing account records and serialization, Argon2id key derivation, XChaCha20-Poly1305, versioned encrypted vaults, and atomic app-directory vault file storage. The latest Linux CI run passed all 50 tests, formatting, strict Clippy, dependency feature inspection, and the optimized Linux executable build:
+The repository contains a Rust workspace with the shared suika-core library and GTK4 Linux frontend. It includes TOTP/HOTP primitives, zeroizing account records and serialization, Argon2id key derivation, XChaCha20-Poly1305, versioned encrypted vaults, and atomic app-directory vault file storage. Every successful Linux CI run performs the following validation before packaging the optimized executable:
 
     cargo fmt --all -- --check
     cargo test --locked --workspace --all-targets
@@ -10,7 +10,7 @@ The repository contains a Rust workspace with the shared suika-core library and 
 
 Rust 1.88 or newer is required by the current dependency baseline. The root rust-toolchain.toml selects the stable channel.
 
-The root and Android JNI Cargo.lock files are committed; the Android JNI lockfile was checked against the exact generated lockfile inside the successful debug APK artifact. CI uses --locked for both Rust workspaces' tests, Clippy, dependency inspection, and release builds, so resolved dependency graphs cannot drift without intentional lockfile updates. Direct cryptographic dependencies are exact-pinned.
+The root and Android JNI Cargo.lock files are committed and include the Aegis-import AES-GCM, scrypt, Base64, and JSON parser dependencies; the Android JNI lockfile was checked against the exact generated lockfile inside the successful debug APK artifact. CI uses --locked for both Rust workspaces' tests, Clippy, dependency inspection, and release builds, so resolved dependency graphs cannot drift without intentional lockfile updates. Direct cryptographic dependencies are exact-pinned.
 
 ## Planned application layout
 

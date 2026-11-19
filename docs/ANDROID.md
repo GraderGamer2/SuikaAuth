@@ -76,6 +76,12 @@ The Add authenticator screen offers an explicit **Scan QR code** action. The app
 
 Camera permission is not requested at startup, for ordinary account use, or merely because the app is installed. Devices without a camera can still use manual provisioning URI paste and Base32 enrollment.
 
+### Aegis JSON migration
+
+The Android account screen offers **Import Aegis export**, which opens the system document picker for a local JSON export. Plaintext exports can be imported with an empty password; password-encrypted exports prompt for the Aegis export password. A file URI remains in memory only and is not copied to a second persistent application directory. The file is read on the serialized worker thread, capped at 16 MiB, and passed with the password to the native Rust importer as byte arrays. Both arrays are cleared immediately after the JNI call; Rust wraps its copies in zeroizing buffers.
+
+The native importer decrypts Aegis password slots using bounded scrypt parameters and AES-256-GCM, parses the inner database, and accepts only standard TOTP/HOTP accounts. It merges all supported entries into a candidate database and persists the candidate through the existing encrypted vault transaction. A failed password, malformed entry, or storage error does not commit a partial import. Importing the file does not change or delete the source export.
+
 ## CI responsibilities
 
 The Android CI job must:

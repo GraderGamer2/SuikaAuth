@@ -28,3 +28,6 @@ The Android app has a **Scan QR code** action on the Add authenticator form. It 
 Linux offers **Import QR image** on the Add account form. It opens a local image through GTK's file dialog, decodes it with GdkPixbuf, scales the result to at most 2,048 × 2,048 pixels, converts it to grayscale, and identifies QR symbols using the pure-Rust `quircs` decoder. The source image is limited to 32 MiB. Exactly one valid `otpauth://` payload may be imported at a time; unsupported images, multiple authenticator codes, malformed payloads, and oversized URIs are rejected. No image or URI is uploaded, and no network request is made.
 
 Both QR paths are transport mechanisms only. They do not maintain independent OTP parsers and never bypass the shared parser's Base32 secret, issuer, algorithm, digit, period, or counter checks. QR decoding libraries belong to the platform frontends, not the cryptographic core.
+
+
+Aegis JSON exports are handled by the separate offline migration path described in [MIGRATION.md](MIGRATION.md). Provisioning URI and QR enrollment remain the shared parser path for individual authenticator tokens.

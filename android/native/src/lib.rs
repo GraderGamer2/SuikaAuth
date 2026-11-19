@@ -14,6 +14,7 @@ use jni::strings::JNIString;
 use jni::sys::{jboolean, jbyteArray, jint, jlong, jobjectArray};
 use jni::{Env, EnvUnowned};
 use suika_core::accounts::{Account, AccountDatabase, AccountMode};
+use suika_core::aegis::import_aegis_export;
 use suika_core::base32::decode_base32;
 use suika_core::crypto::KdfParams;
 use suika_core::otp::OtpAlgorithm;
@@ -243,6 +244,64 @@ fn import_otpauth_uri(handle: jlong, encoded_uri: &[u8]) -> Result<(), String> {
         .insert(account)
         .map_err(|error| error.to_string())?;
     persist_candidate(session, candidate)
+}
+
+fn import_aegis_file(
+    handle: jlong,
+    encoded_export: &[u8],
+    password: &[u8],
+) -> Result<(usize, usize), String> {
+    let handle =
+        u64::try_from(handle).map_err(|_| "Native session handle is invalid.".to_owned())?;
+    {
+        let registry = sessions()
+            .lock()
+            .map_err(|_| "Native session registry is unavailable.".to_owned())?;
+        if !registry.contains_key(&handle) {
+            return Err("The native vault session is no longer active.".to_owned());
+        }
+    }
+
+    let imported = import_aegis_export(
+        encoded_export,
+        if password.is_empty() {
+            None
+        } else {
+            Some(password)
+        },
+    )
+    .map_err(|error| error.to_string())?;
+    let imported_count = imported.accounts.len();
+    let skipped_unsupported = imported.skipped_unsupported;
+    if imported_count == 0 {
+        return Err(if skipped_unsupported == 0 {
+            "The Aegis export contains no accounts.".to_owned()
+        } else {
+            format!(
+                "No supported TOTP/HOTP accounts were found; {skipped_unsupported} unsupported entries were skipped."
+            )
+        });
+    }
+
+    let mut registry = sessions()
+        .lock()
+        .map_err(|_| "Native session registry is unavailable.".to_owned())?;
+    let session = registry
+        .get_mut(&handle)
+        .ok_or_else(|| "The native vault session is no longer active.".to_owned())?;
+    let candidate_bytes = session
+        .accounts
+        .encode()
+        .map_err(|error| error.to_string())?;
+    let mut candidate =
+        AccountDatabase::decode(&candidate_bytes).map_err(|error| error.to_string())?;
+    for account in imported.accounts {
+        candidate
+            .insert(account)
+            .map_err(|error| error.to_string())?;
+    }
+    persist_candidate(session, candidate)?;
+    Ok((imported_count, skipped_unsupported))
 }
 
 fn update_account(
@@ -630,6 +689,31 @@ pub extern "system" fn Java_org_suika_suikaauthenticator_NativeBridge_nativeImpo
 }
 
 #[unsafe(no_mangle)]
+pub extern "system" fn Java_org_suika_suikaauthenticator_NativeBridge_nativeImportAegisExport<
+    'local,
+>(
+    mut unowned_env: EnvUnowned<'local>,
+    _class: JClass<'local>,
+    handle: jlong,
+    encoded_export: JByteArray<'local>,
+    encoded_password: JByteArray<'local>,
+) -> jni::sys::jstring {
+    unowned_env
+        .with_env(|env| -> jni::errors::Result<jni::sys::jstring> {
+            let encoded_export = Zeroizing::new(env.convert_byte_array(&encoded_export)?);
+            let encoded_password = Zeroizing::new(env.convert_byte_array(&encoded_password)?);
+            match import_aegis_file(handle, &encoded_export, &encoded_password) {
+                Ok((imported, skipped)) => {
+                    let summary = format!("{imported}:{skipped}");
+                    Ok(JString::from_str(env, &summary)?.into_raw())
+                }
+                Err(message) => throw_state_error(env, &message),
+            }
+        })
+        .resolve::<ThrowRuntimeExAndDefault>()
+}
+
+#[unsafe(no_mangle)]
 pub extern "system" fn Java_org_suika_suikaauthenticator_NativeBridge_nativeUpdateAccount<
     'local,
 >(
@@ -786,6 +870,90 @@ mod tests {
             restored.accounts()[1].mode(),
             AccountMode::Hotp { counter: 9 }
         );
+    }
+
+    #[test]
+    fn aegis_json_import_is_committed_to_the_encrypted_vault() {
+        let temporary = TestDirectory::new();
+        let store =
+            VaultStore::open(temporary.0.join(APP_DIRECTORY)).expect("vault store should open");
+        let accounts = AccountDatabase::new();
+        let plaintext = accounts.encode().expect("account database should encode");
+        let params = KdfParams::new(64 * 1024, 1, 1).expect("test KDF profile");
+        let (serialized, vault) = Vault::create_session(&plaintext, b"test password", params)
+            .expect("encrypted vault and unlocked session should be created");
+        store
+            .save_new(&serialized)
+            .expect("initial vault should be saved");
+        let handle = insert_session(NativeSession {
+            store,
+            vault,
+            accounts,
+        })
+        .expect("native session handle should be allocated");
+
+        let export = br#"{
+            "version": 1,
+            "header": { "slots": null, "params": null },
+            "db": {
+                "version": 3,
+                "entries": [
+                    {
+                        "type": "totp",
+                        "name": "alice@example.com",
+                        "issuer": "Example",
+                        "favorite": true,
+                        "info": {
+                            "secret": "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP",
+                            "algo": "SHA256",
+                            "digits": 8,
+                            "period": 60
+                        }
+                    },
+                    {
+                        "type": "steam",
+                        "name": "unsupported",
+                        "issuer": "Example",
+                        "info": {
+                            "secret": "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP",
+                            "algo": "SHA1",
+                            "digits": 5,
+                            "period": 30
+                        }
+                    }
+                ]
+            }
+        }"#;
+        assert_eq!(
+            import_aegis_file(handle as jlong, export, b"")
+                .expect("plaintext Aegis export should import"),
+            (1, 1)
+        );
+
+        let mut registry = sessions()
+            .lock()
+            .expect("session registry should remain available");
+        let session = registry
+            .remove(&handle)
+            .expect("native session should remain active");
+        assert_eq!(session.accounts.len(), 1);
+        let persisted = Vault::unlock(
+            &session.store.load().expect("persisted vault should load"),
+            b"test password",
+        )
+        .expect("persisted imported vault should unlock");
+        let restored = AccountDatabase::decode(persisted.plaintext())
+            .expect("persisted imported accounts should decode");
+        assert_eq!(restored.len(), 1);
+        assert_eq!(restored.accounts()[0].issuer(), "Example");
+        assert_eq!(restored.accounts()[0].label(), "alice@example.com");
+        assert_eq!(restored.accounts()[0].algorithm(), OtpAlgorithm::Sha256);
+        assert_eq!(restored.accounts()[0].digits(), 8);
+        assert_eq!(
+            restored.accounts()[0].mode(),
+            AccountMode::Totp { period_seconds: 60 }
+        );
+        assert!(restored.accounts()[0].is_favorite());
     }
 
     #[test]

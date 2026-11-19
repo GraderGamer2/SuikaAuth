@@ -32,7 +32,7 @@ Do not scatter application data across XDG configuration, data, or cache directo
 
 ## Development status
 
-See ROADMAP.md for the authoritative implementation sequence and current milestone. The shared Rust core includes RFC-tested TOTP/HOTP generation, bounded RFC 4648 Base32 decoding, an Argon2id/XChaCha20 encrypted vault, a compact versioned account database, and atomic app-directory vault storage. The GTK4 Linux frontend supports first-run vault creation and unlock, live OTP display, TOTP/HOTP enrollment, local QR-image import, dropdown-based OTP configuration with custom period/counter values, click-to-copy, HOTP counter advancement, local search, account editing/removal, explicit locking, and an automatic five-minute inactivity lock. The Android View-based frontend uses the same vault and Rust core through an isolated JNI library, supports TOTP provisioning-URI import, camera-based QR enrollment, configurable TOTP enrollment, account listing, safe HOTP consumption, account editing/removal without displaying stored secrets, local account search, optional device-bound biometric unlock, and background locking immediately or after a user-selected 1, 3, 5, or 10 minutes, in addition to its five-minute inactivity lock. Linux and Android Rust release artifacts use opt-level 3 and full LTO with portable target CPU baselines.
+See ROADMAP.md for the authoritative implementation sequence and current milestone. The shared Rust core includes RFC-tested TOTP/HOTP generation, bounded RFC 4648 Base32 decoding, an Argon2id/XChaCha20 encrypted vault, a compact versioned account database, and atomic app-directory vault storage. The GTK4 Linux frontend supports first-run vault creation and unlock, live OTP display, TOTP/HOTP enrollment, local QR-image import, plaintext/encrypted Aegis JSON migration, dropdown-based OTP configuration with custom period/counter values, click-to-copy, HOTP counter advancement, local search, account editing/removal, explicit locking, and an automatic five-minute inactivity lock. The Android View-based frontend uses the same vault and Rust core through an isolated JNI library, supports TOTP provisioning-URI import, camera-based QR enrollment, plaintext/encrypted Aegis JSON migration, configurable TOTP enrollment, account listing, safe HOTP consumption, account editing/removal without displaying stored secrets, local account search, optional device-bound biometric unlock, and background locking immediately or after a user-selected 1, 3, 5, or 10 minutes, in addition to its five-minute inactivity lock. Linux and Android Rust release artifacts use opt-level 3 and full LTO with portable target CPU baselines.
 
 ## CI downloads
 
@@ -40,7 +40,7 @@ The Build binaries workflow builds the optimized Linux executable and Android de
 
 Successful build artifacts are available under the workflow run's Artifacts section and expire after **one day**. They are temporary CI downloads, not permanent GitHub Releases.
 
-See docs/BUILDING.md for build details.
+See docs/BUILDING.md for build details. For supported authenticator export formats, preserved fields, and migration limits, see docs/MIGRATION.md.
 
 ## Dependency policy
 

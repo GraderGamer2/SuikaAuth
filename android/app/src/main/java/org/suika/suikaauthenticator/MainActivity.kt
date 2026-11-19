@@ -3,6 +3,7 @@ package org.suika.suikaauthenticator
 import android.Manifest
 import android.app.AlertDialog
 import android.content.pm.PackageManager
+import android.net.Uri
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
@@ -40,6 +41,7 @@ import android.widget.ScrollView
 import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.ExecutorService
@@ -65,6 +67,8 @@ class MainActivity : FragmentActivity() {
     private var pendingQrUriField: EditText? = null
     private var activeQrScannerCleanup: (() -> Unit)? = null
     private var sensitiveEnrollmentFields: List<EditText> = emptyList()
+    private var pendingAegisUri: Uri? = null
+    private var activeAegisPasswordDialog: AlertDialog? = null
     private var isRefreshing = false
     private val pendingHotp = mutableSetOf<String>()
 
@@ -84,6 +88,18 @@ class MainActivity : FragmentActivity() {
             showQrScanner(uriField)
         } else if (!granted && ::status.isInitialized && !isFinishing) {
             status.text = "Camera access is required to scan a QR code. You can still paste a provisioning URI."
+        }
+    }
+
+    private val aegisDocumentPicker = registerForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        pendingAegisUri = uri
+        if (uri == null) return@registerForActivityResult
+        if (activeHandle != null) {
+            promptAegisPassword()
+        } else if (::status.isInitialized) {
+            status.text = "Aegis export selected. Unlock your vault to continue the import."
         }
     }
 
@@ -158,6 +174,7 @@ class MainActivity : FragmentActivity() {
 
     override fun onStop() {
         activityStarted = false
+        activeAegisPasswordDialog?.dismiss()
         activeQrScannerCleanup?.invoke()
         handler.removeCallbacks(accountRefresh)
         handler.removeCallbacks(inactivityLock)
@@ -173,6 +190,7 @@ class MainActivity : FragmentActivity() {
     }
 
     override fun onDestroy() {
+        activeAegisPasswordDialog?.dismiss()
         activeQrScannerCleanup?.invoke()
         clearSensitiveEnrollmentFields()
         handler.removeCallbacksAndMessages(null)
@@ -287,6 +305,21 @@ class MainActivity : FragmentActivity() {
         addHeading("Your accounts")
         addText("Vault unlocked · encrypted storage is active", 13f)
         addButton("Lock vault").setOnClickListener { lockSession(showAuthentication = true) }
+        addButton("Import Aegis export").setOnClickListener {
+            if (pendingAegisUri != null) {
+                promptAegisPassword()
+            } else {
+                aegisDocumentPicker.launch(
+                    arrayOf(
+                        "application/json",
+                        "text/json",
+                        "text/plain",
+                        "application/octet-stream",
+                        "*/*"
+                    )
+                )
+            }
+        }
 
         addSectionTitle("Security")
         addButton("Enable / replace biometric unlock").setOnClickListener {
@@ -449,6 +482,165 @@ class MainActivity : FragmentActivity() {
         handler.removeCallbacks(accountRefresh)
         if (activityStarted) handler.post(accountRefresh)
         resetInactivityTimer()
+        if (pendingAegisUri != null) {
+            handler.post { promptAegisPassword() }
+        }
+    }
+
+    private fun promptAegisPassword(message: String? = null) {
+        val uri = pendingAegisUri ?: return
+        if (activeAegisPasswordDialog?.isShowing == true) return
+        if (activeHandle == null || isFinishing || isDestroyed) return
+
+        val passwordField = EditText(this).apply {
+            hint = "Aegis export password (leave blank for plaintext)"
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or
+                android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+            isSingleLine = true
+            isSaveEnabled = false
+            importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_NO
+        }
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("Import Aegis export")
+            .setMessage(
+                message ?: "Enter the export password. Leave it blank for an unencrypted Aegis JSON export."
+            )
+            .setView(passwordField)
+            .setNegativeButton("Cancel") { _, _ -> pendingAegisUri = null }
+            .setPositiveButton("Import", null)
+            .create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val password = passwordField.text.toString().toByteArray(StandardCharsets.UTF_8)
+                passwordField.text?.clear()
+                dialog.dismiss()
+                importAegisDocument(uri, password)
+            }
+        }
+        dialog.setOnCancelListener { pendingAegisUri = null }
+        dialog.setOnDismissListener {
+            passwordField.text?.clear()
+            if (activeAegisPasswordDialog === dialog) {
+                activeAegisPasswordDialog = null
+            }
+        }
+        activeAegisPasswordDialog = dialog
+        dialog.show()
+        passwordField.requestFocus()
+    }
+
+    private fun importAegisDocument(uri: Uri, password: ByteArray) {
+        val handle = activeHandle
+        if (handle == null) {
+            password.fill(0)
+            status.text = "Unlock your vault before importing an Aegis export."
+            return
+        }
+        status.text = "Reading and importing the Aegis export…"
+        worker.execute {
+            var exportBytes: ByteArray? = null
+            val result = runCatching {
+                exportBytes = readAegisExport(uri)
+                NativeBridge.nativeImportAegisExport(
+                    handle,
+                    exportBytes ?: throw IllegalStateException("The Aegis export could not be read."),
+                    password
+                )
+            }
+            exportBytes?.fill(0)
+            password.fill(0)
+            runOnUiThread {
+                if (activeHandle != handle || isFinishing || isDestroyed) return@runOnUiThread
+                result.onSuccess { summary ->
+                    val values = summary.split(':')
+                    val imported = values.getOrNull(0)?.toIntOrNull()
+                    val skipped = values.getOrNull(1)?.toIntOrNull()
+                    if (imported == null || skipped == null) {
+                        status.text = "The native importer returned an invalid result."
+                    } else {
+                        pendingAegisUri = null
+                        status.text = "Imported $imported accounts; skipped $skipped unsupported entries. Imported secrets are now encrypted in your vault."
+                        refreshAccountsNow()
+                    }
+                }.onFailure { error ->
+                    val message = error.message ?: "The Aegis export could not be imported."
+                    if (
+                        message.contains("password is incorrect", ignoreCase = true) ||
+                        message.contains("enter its export password", ignoreCase = true)
+                    ) {
+                        promptAegisPassword(message)
+                    } else {
+                        showError(error)
+                    }
+                }
+            }
+        }
+    }
+
+    private fun readAegisExport(uri: Uri): ByteArray {
+        val maximumBytes = 16 * 1024 * 1024
+        val input = contentResolver.openInputStream(uri)
+            ?: throw IllegalStateException("The selected Aegis export could not be opened.")
+        val output = ZeroizingByteArrayOutputStream()
+        val buffer = ByteArray(8192)
+        try {
+            input.use { stream ->
+                while (true) {
+                    val count = stream.read(buffer)
+                    if (count < 0) break
+                    if (count == 0) continue
+                    if (count > maximumBytes || output.size() > maximumBytes - count) {
+                        throw IllegalArgumentException("The Aegis export exceeds the 16 MiB import limit.")
+                    }
+                    output.write(buffer, 0, count)
+                }
+            }
+            return output.toByteArray()
+        } finally {
+            buffer.fill(0)
+            output.clear()
+        }
+    }
+
+    private class ZeroizingByteArrayOutputStream : ByteArrayOutputStream(8192) {
+        private fun ensureBoundedCapacity(minimumCapacity: Int) {
+            val maximumBytes = 16 * 1024 * 1024
+            if (minimumCapacity < 0 || minimumCapacity > maximumBytes) {
+                throw IllegalArgumentException("The Aegis export exceeds the 16 MiB import limit.")
+            }
+            if (minimumCapacity <= buf.size) return
+
+            val doubled = (buf.size.toLong() * 2L)
+                .coerceAtMost(maximumBytes.toLong())
+                .toInt()
+            val newCapacity = maxOf(minimumCapacity, doubled)
+            val previous = buf
+            buf = previous.copyOf(newCapacity)
+            previous.fill(0)
+        }
+
+        @Synchronized
+        override fun write(value: Int) {
+            ensureBoundedCapacity(count + 1)
+            super.write(value)
+        }
+
+        @Synchronized
+        override fun write(source: ByteArray, offset: Int, length: Int) {
+            if (
+                offset < 0 || length < 0 ||
+                offset > source.size - length
+            ) {
+                throw IndexOutOfBoundsException()
+            }
+            ensureBoundedCapacity(count + length)
+            super.write(source, offset, length)
+        }
+
+        fun clear() {
+            buf.fill(0)
+            reset()
+        }
     }
 
     private fun requestQrScanner(uriField: EditText) {

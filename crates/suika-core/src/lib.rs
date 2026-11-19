@@ -7,6 +7,7 @@
 //! responsible for those concerns and must use this crate for core operations.
 
 pub mod accounts;
+pub mod aegis;
 pub mod base32;
 pub mod crypto;
 pub mod otp;

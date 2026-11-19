@@ -34,7 +34,8 @@ Status: initial design baseline; update this document whenever the security arch
 
 - Obtaining a copy of the encrypted vault or backup while the application is closed.
 - Modifying, truncating, or replacing encrypted file contents.
-- Supplying malformed vault headers intended to trigger excessive memory or CPU allocation.
+- Supplying malformed vault headers or untrusted authenticator exports intended to trigger excessive memory or CPU allocation.
+- Supplying malformed provisioning URIs or QR images.
 - Attempting offline password guesses against a copied vault.
 
 ## Required controls
@@ -44,7 +45,9 @@ Status: initial design baseline; update this document whenever the security arch
 - A random 256-bit DEK, wrapped by a password-derived KEK.
 - XChaCha20-Poly1305 authenticated encryption with a fresh random 192-bit nonce per encryption operation.
 - Authentication of format metadata using associated data.
-- Strict bounds on file sizes, ciphertext lengths, and KDF parameters.
+- Strict bounds on file sizes, ciphertext lengths, password sizes, and KDF parameters, including scrypt cost and slot-count bounds for Aegis imports.
+- Parse external provisioning URIs and Aegis exports as untrusted input; validate their KDF parameters, OTP types, and metadata.
+- Merge imports into a candidate account database and commit only after the entire import validates and the normal encrypted vault save succeeds.
 - Atomic vault replacement and preservation of the previous valid file during writes.
 - No plaintext temporary database or plaintext backup.
 - Zeroization of key material and decrypted buffers where practical.
