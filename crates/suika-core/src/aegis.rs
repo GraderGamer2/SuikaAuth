@@ -507,7 +507,10 @@ fn convert_aegis_database(database: AegisDatabase) -> Result<AegisImportResult, 
                         .unwrap_or_else(|| legacy_group.clone())
                 })
             });
-        if let Some(group) = group_name && group.len() <= 128 && !group.is_empty() {
+        if let Some(group) = group_name
+            && group.len() <= 128
+            && !group.is_empty()
+        {
             account
                 .set_group(Some(group))
                 .map_err(|_| AegisImportError::InvalidAccount)?;
