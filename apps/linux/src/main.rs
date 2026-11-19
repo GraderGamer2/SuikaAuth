@@ -624,20 +624,20 @@ fn bind_parameter_fields(
     counter_field: &GtkBox,
     custom_field: &GtkBox,
 ) {
-    let mode = mode.clone();
-    let period = period.clone();
-    let counter = counter.clone();
+    let mode_for_update = mode.clone();
+    let period_for_update = period.clone();
+    let counter_for_update = counter.clone();
     let period_field = period_field.clone();
     let counter_field = counter_field.clone();
     let custom_field = custom_field.clone();
     let update = Rc::new(move || {
-        let is_totp = mode.selected() == 0;
+        let is_totp = mode_for_update.selected() == 0;
         period_field.set_visible(is_totp);
         counter_field.set_visible(!is_totp);
         let custom_selected = if is_totp {
-            period.selected() == TOTP_PERIOD_PRESETS.len() as u32
+            period_for_update.selected() == TOTP_PERIOD_PRESETS.len() as u32
         } else {
-            counter.selected() == HOTP_COUNTER_PRESETS.len() as u32
+            counter_for_update.selected() == HOTP_COUNTER_PRESETS.len() as u32
         };
         custom_field.set_visible(custom_selected);
     });
@@ -645,7 +645,8 @@ fn bind_parameter_fields(
     mode.connect_selected_notify(move |_| update_mode());
     let update_period = update.clone();
     period.connect_selected_notify(move |_| update_period());
-    counter.connect_selected_notify(move |_| update());
+    let update_counter = update.clone();
+    counter.connect_selected_notify(move |_| update_counter());
     update();
 }
 
