@@ -482,11 +482,8 @@ mod tests {
     #[test]
     fn restores_the_shared_cross_platform_v1_fixture() {
         let fixture = include_bytes!("../tests/fixtures/portable_backup_v1.suikabak");
-        let plaintext = Backup::restore(
-            fixture,
-            b"portable-backup-fixture-password",
-        )
-        .expect("shared portable backup fixture should restore");
+        let plaintext = Backup::restore(fixture, b"portable-backup-fixture-password")
+            .expect("shared portable backup fixture should restore");
         let accounts = AccountDatabase::decode(&plaintext)
             .expect("shared fixture account database should decode");
 

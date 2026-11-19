@@ -3100,9 +3100,8 @@ mod tests {
 
     #[test]
     fn linux_file_reader_restores_the_shared_portable_backup_fixture() {
-        let fixture_path = Path::new(env!("CARGO_MANIFEST_DIR")).join(
-            "../../crates/suika-core/tests/fixtures/portable_backup_v1.suikabak",
-        );
+        let fixture_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../crates/suika-core/tests/fixtures/portable_backup_v1.suikabak");
         let encrypted = read_backup_file(&fixture_path)
             .expect("Linux file reader should accept the shared backup fixture");
         let plaintext = Backup::restore(&encrypted, b"portable-backup-fixture-password")
@@ -3123,6 +3122,43 @@ mod tests {
             accounts.accounts()[1].mode(),
             AccountMode::Hotp { counter: 9 }
         );
+    }
+
+    #[test]
+    fn backup_export_writes_a_private_file() {
+        static NEXT_DIRECTORY: AtomicU64 = AtomicU64::new(0);
+        let directory = loop {
+            let sequence = NEXT_DIRECTORY.fetch_add(1, Ordering::Relaxed);
+            let candidate = std::env::temp_dir().join(format!(
+                "suika-backup-permissions-test-{}-{sequence}",
+                std::process::id()
+            ));
+            match fs::create_dir(&candidate) {
+                Ok(()) => break candidate,
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(error) => panic!("test directory should be created: {error}"),
+            }
+        };
+        fs::write(directory.join("vault.bin"), b"live vault contents")
+            .expect("test vault file should be written");
+
+        let destination = directory.join("backup.suikabak");
+        write_backup_file(&destination, b"encrypted backup bytes", &directory)
+            .expect("encrypted backup should be written");
+        let metadata =
+            fs::metadata(&destination).expect("backup file should be present after export");
+        let permissions = metadata.permissions();
+        use std::os::unix::fs::PermissionsExt;
+        let mode = permissions.mode() & 0o777;
+
+        assert_eq!(mode & 0o600, 0o600, "owner read/write access is required");
+        assert_eq!(mode & 0o077, 0, "group/other access must be denied");
+        assert_eq!(
+            fs::read(&destination).expect("encrypted backup should be readable"),
+            b"encrypted backup bytes"
+        );
+
+        fs::remove_dir_all(&directory).expect("test directory should be removed");
     }
 
     #[test]

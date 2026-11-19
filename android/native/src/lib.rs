@@ -1098,7 +1098,8 @@ mod tests {
         })
         .expect("native session handle should be allocated");
 
-        let fixture = include_bytes!("../../../crates/suika-core/tests/fixtures/portable_backup_v1.suikabak");
+        let fixture =
+            include_bytes!("../../../crates/suika-core/tests/fixtures/portable_backup_v1.suikabak");
         assert_eq!(
             restore_backup(
                 handle as jlong,
@@ -1117,7 +1118,10 @@ mod tests {
             .expect("native target session should remain active");
         assert_eq!(session.accounts.len(), 2);
         let persisted = Vault::unlock(
-            &session.store.load().expect("restored Android vault should load"),
+            &session
+                .store
+                .load()
+                .expect("restored Android vault should load"),
             b"Android target vault password",
         )
         .expect("target vault password should still unlock after restore");

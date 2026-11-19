@@ -574,6 +574,14 @@ class MainActivity : FragmentActivity() {
         if (pendingUriListUri != null) {
             handler.post { pendingUriListUri?.let(::importOtpauthUriList) }
         }
+        // A system document picker may background/auto-lock the vault before
+        // returning its URI. Resume the pending backup action after re-unlock.
+        if (pendingBackupExportUri != null) {
+            handler.post { promptBackupExportPassword() }
+        }
+        if (pendingBackupRestoreUri != null) {
+            handler.post { promptBackupRestorePassword() }
+        }
     }
 
     private fun promptAegisPassword(message: String? = null) {
