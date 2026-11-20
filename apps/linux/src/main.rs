@@ -41,6 +41,45 @@ const INACTIVITY_LOCK_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 thread_local! {
     static LAST_ACTIVITY: Cell<Instant> = Cell::new(Instant::now());
     static OTP_CLIPBOARD_GENERATION: Cell<u64> = const { Cell::new(0) };
+    static FILE_DIALOG_GENERATION: Cell<u64> = const { Cell::new(0) };
+    static ACTIVE_FILE_DIALOG: RefCell<Option<(u64, gio::Cancellable)>> = const { RefCell::new(None) };
+}
+
+fn begin_file_dialog() -> (u64, gio::Cancellable) {
+    let id = FILE_DIALOG_GENERATION.with(|generation| {
+        let next = generation.get().wrapping_add(1);
+        generation.set(next);
+        next
+    });
+    let cancellable = gio::Cancellable::new();
+
+    ACTIVE_FILE_DIALOG.with(|active| {
+        if let Some((_, previous)) = active.borrow_mut().take() {
+            previous.cancel();
+        }
+        *active.borrow_mut() = Some((id, cancellable.clone()));
+    });
+
+    (id, cancellable)
+}
+
+fn finish_file_dialog(id: u64) {
+    ACTIVE_FILE_DIALOG.with(|active| {
+        let is_current = active
+            .borrow()
+            .as_ref()
+            .is_some_and(|(active_id, _)| *active_id == id);
+        if is_current {
+            active.borrow_mut().take();
+        }
+    });
+}
+
+fn cancel_active_file_dialog() {
+    let active = ACTIVE_FILE_DIALOG.with(|active| active.borrow_mut().take());
+    if let Some((_, cancellable)) = active {
+        cancellable.cancel();
+    }
 }
 
 fn record_activity() {
@@ -121,6 +160,7 @@ fn build_application(application: &Application) {
     let stack_for_close = stack.clone();
     let unlocked_for_close = unlocked.clone();
     window.connect_close_request(move |_| {
+        cancel_active_file_dialog();
         clear_secret_entries(stack_for_close.upcast_ref());
         unlocked_for_close.borrow_mut().take();
         glib::Propagation::Proceed
@@ -844,10 +884,12 @@ fn show_add_account_page(
             .build();
         let uri_field = uri_for_qr.clone();
         let status_label = status_for_qr.clone();
+        let (dialog_id, cancellable) = begin_file_dialog();
         file_dialog.open(
             Some(&window_for_qr),
-            None::<&gio::Cancellable>,
+            Some(&cancellable),
             move |result| {
+                finish_file_dialog(dialog_id);
                 let Ok(file) = result else {
                     return;
                 };
@@ -2966,7 +3008,9 @@ fn show_accounts_page(
     let window_for_import = window.downgrade();
     let directory_for_import = directory.clone();
     let unlocked_for_import = unlocked.clone();
+    let menu_for_import = menu.clone();
     import_aegis.connect_clicked(move |_| {
+        menu_for_import.popdown();
         let file_dialog = gtk::FileDialog::builder()
             .title("Import Aegis export")
             .accept_label("Open")
@@ -2977,7 +3021,9 @@ fn show_accounts_page(
         let directory_for_file = directory_for_import.clone();
         let unlocked_for_file = unlocked_for_import.clone();
         if let Some(parent) = window_for_import.upgrade() {
-            file_dialog.open(Some(&parent), None::<&gio::Cancellable>, move |result| {
+            let (dialog_id, cancellable) = begin_file_dialog();
+            file_dialog.open(Some(&parent), Some(&cancellable), move |result| {
+                finish_file_dialog(dialog_id);
                 let Ok(file) = result else {
                     return;
                 };
@@ -3008,7 +3054,9 @@ fn show_accounts_page(
     let window_for_uri_list = window.downgrade();
     let directory_for_uri_list = directory.clone();
     let unlocked_for_uri_list = unlocked.clone();
+    let menu_for_uri_list = menu.clone();
     import_uri_list.connect_clicked(move |_| {
+        menu_for_uri_list.popdown();
         let file_dialog = gtk::FileDialog::builder()
             .title("Import plaintext URI list")
             .accept_label("Open")
@@ -3019,7 +3067,9 @@ fn show_accounts_page(
         let directory_for_file = directory_for_uri_list.clone();
         let unlocked_for_file = unlocked_for_uri_list.clone();
         if let Some(parent) = window_for_uri_list.upgrade() {
-            file_dialog.open(Some(&parent), None::<&gio::Cancellable>, move |result| {
+            let (dialog_id, cancellable) = begin_file_dialog();
+            file_dialog.open(Some(&parent), Some(&cancellable), move |result| {
+                finish_file_dialog(dialog_id);
                 let Ok(file) = result else {
                     return;
                 };
@@ -3050,7 +3100,9 @@ fn show_accounts_page(
     let window_for_backup_export = window.downgrade();
     let directory_for_backup_export = directory.clone();
     let unlocked_for_backup_export = unlocked.clone();
+    let menu_for_backup_export = menu.clone();
     create_backup.connect_clicked(move |_| {
+        menu_for_backup_export.popdown();
         let file_dialog = gtk::FileDialog::builder()
             .title("Create encrypted backup")
             .accept_label("Save")
@@ -3062,7 +3114,9 @@ fn show_accounts_page(
         let directory_for_file = directory_for_backup_export.clone();
         let unlocked_for_file = unlocked_for_backup_export.clone();
         if let Some(parent) = window_for_backup_export.upgrade() {
-            file_dialog.save(Some(&parent), None::<&gio::Cancellable>, move |result| {
+            let (dialog_id, cancellable) = begin_file_dialog();
+            file_dialog.save(Some(&parent), Some(&cancellable), move |result| {
+                finish_file_dialog(dialog_id);
                 let Ok(file) = result else {
                     return;
                 };
@@ -3093,7 +3147,9 @@ fn show_accounts_page(
     let window_for_backup_restore = window.downgrade();
     let directory_for_backup_restore = directory.clone();
     let unlocked_for_backup_restore = unlocked.clone();
+    let menu_for_backup_restore = menu.clone();
     restore_backup.connect_clicked(move |_| {
+        menu_for_backup_restore.popdown();
         let file_dialog = gtk::FileDialog::builder()
             .title("Restore encrypted backup")
             .accept_label("Open")
@@ -3104,7 +3160,9 @@ fn show_accounts_page(
         let directory_for_file = directory_for_backup_restore.clone();
         let unlocked_for_file = unlocked_for_backup_restore.clone();
         if let Some(parent) = window_for_backup_restore.upgrade() {
-            file_dialog.open(Some(&parent), None::<&gio::Cancellable>, move |result| {
+            let (dialog_id, cancellable) = begin_file_dialog();
+            file_dialog.open(Some(&parent), Some(&cancellable), move |result| {
+                finish_file_dialog(dialog_id);
                 let Ok(file) = result else {
                     return;
                 };
