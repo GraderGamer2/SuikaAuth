@@ -1,6 +1,6 @@
 # Cryptographic design
 
-Status: initial implementation baseline. This document is not a third-party security audit.
+Status: internal source review updated 2026-11-20. This document is not a third-party security audit.
 
 ## Password-based key derivation
 
@@ -71,8 +71,9 @@ The shared core provides a bounded RFC 4648 Base32 decoder for manually entered 
 - SecretKey does not implement Clone and redacts its Debug output.
 - Key material is zeroized on drop.
 - Decrypted AEAD output is returned in a zeroizing buffer.
-- Argon2's internal working memory zeroization feature is enabled.
-- These measures reduce exposure; they do not guarantee that every copy of sensitive material is erased from the entire system.
+- Argon2's zeroization integration is enabled for dependency-managed KDF state and working memory.
+- The HMAC crate's zeroize feature is enabled, and each complete HOTP/TOTP digest is held in a zeroizing buffer until dynamic truncation finishes.
+- These measures reduce exposure; they do not guarantee that every copy of sensitive material is erased from the entire system. GTK and Android text widgets/frameworks can create managed password-text copies that the application cannot reliably zeroize. The frontends clear visible password entries and zeroize byte buffers they own, but cannot promise erasure of all GUI/runtime copies.
 
 ## Cryptographic dependencies
 

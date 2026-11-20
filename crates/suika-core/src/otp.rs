@@ -5,6 +5,7 @@ use core::fmt;
 use hmac::{Hmac, KeyInit, Mac};
 use sha1::Sha1;
 use sha2::{Sha256, Sha512};
+use zeroize::Zeroizing;
 
 /// HMAC digest supported by HOTP and TOTP.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -45,10 +46,14 @@ impl fmt::Display for OtpError {
 
 impl std::error::Error for OtpError {}
 
-fn compute_hmac(secret: &[u8], counter: u64, algorithm: OtpAlgorithm) -> Result<Vec<u8>, OtpError> {
+fn compute_hmac(
+    secret: &[u8],
+    counter: u64,
+    algorithm: OtpAlgorithm,
+) -> Result<Zeroizing<Vec<u8>>, OtpError> {
     let message = counter.to_be_bytes();
 
-    let digest = match algorithm {
+    let digest = Zeroizing::new(match algorithm {
         OtpAlgorithm::Sha1 => {
             let mut mac =
                 Hmac::<Sha1>::new_from_slice(secret).map_err(|_| OtpError::InvalidDigest)?;
@@ -67,7 +72,7 @@ fn compute_hmac(secret: &[u8], counter: u64, algorithm: OtpAlgorithm) -> Result<
             mac.update(&message);
             mac.finalize().into_bytes().to_vec()
         }
-    };
+    });
 
     Ok(digest)
 }

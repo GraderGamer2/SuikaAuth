@@ -90,7 +90,7 @@ Status: **Milestone 7 — Encrypted backup and restore (Linux/Android implementa
 
 - [x] Mark Android OTP clipboard content as sensitive and add owner-checked, best-effort 30-second clipboard cleanup on Linux and Android.
 - [ ] Validate clipboard preview redaction and expiry/focus behavior on Android devices and Linux Wayland/X11 sessions.
-- [ ] Review threat model and cryptographic implementation.
+- [x] Review the threat model and current cryptographic/key-handling source; record scope, findings, and remaining limits in docs/SECURITY_REVIEW.md. This is an internal review, not an independent security audit.
 - [ ] Audit direct and transitive dependencies.
 - [x] Add pinned RustSec advisory checks for both independent Cargo lockfiles in CI; keep the manual dependency review open.
 - [x] Commit the root and Android JNI Cargo-generated Cargo.lock files and verify locked CI builds.

@@ -1,6 +1,6 @@
 # SuikaAuthenticator threat model
 
-Status: initial design baseline; update this document whenever the security architecture changes.
+Status: internal source review updated 2026-11-20; update this document whenever the security architecture changes. See docs/SECURITY_REVIEW.md. This is not an independent security audit.
 
 ## Assets
 
@@ -26,6 +26,7 @@ Status: initial design baseline; update this document whenever the security arch
 - The device operating system and kernel are trusted while SuikaAuthenticator is running.
 - The application cannot protect secrets from a compromised/rooted operating system, a malicious process with sufficient privileges, keyloggers, or an attacker who controls the device while the vault is unlocked.
 - Memory zeroization reduces exposure but cannot guarantee removal of every compiler-generated copy, CPU register value, swap copy, crash dump, or physical-memory remnant.
+- GTK and Android UI text components may retain framework-managed password text copies after the visible entry is cleared; the application zeroizes byte buffers it owns but cannot guarantee erasure of all GUI/runtime copies.
 - TOTP is a possession factor. It does not make a weak account password strong, prevent phishing, or protect an account whose server-side recovery process is compromised.
 - An offline vault cannot enforce a server-side password-attempt limit. Password quality and Argon2id cost therefore matter.
 - Biometrics are a platform convenience for local unlock. They are not a portable recovery factor and must never replace the master password for backup restoration.
