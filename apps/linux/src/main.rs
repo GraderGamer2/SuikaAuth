@@ -887,36 +887,32 @@ fn show_add_account_page(
         let uri_field = uri_for_qr.clone();
         let status_label = status_for_qr.clone();
         let (dialog_id, cancellable) = begin_file_dialog();
-        file_dialog.open(
-            Some(&window_for_qr),
-            Some(&cancellable),
-            move |result| {
-                finish_file_dialog(dialog_id);
-                let Ok(file) = result else {
-                    return;
-                };
-                let Some(path) = file.path() else {
-                    status_label.set_text("The selected image is not available as a local file.");
-                    return;
-                };
-                match decode_otpauth_qr_image(&path) {
-                    Ok(uri) => match parse_otpauth_uri(uri.as_str()) {
-                        Ok(_) => {
-                            uri_field.set_text(uri.as_str());
-                            status_label.set_text(
-                                "QR code decoded. Review the imported URI, then select Add account.",
-                            );
-                        }
-                        Err(error) => {
-                            status_label.set_text(&format!(
-                                "The QR code does not contain a supported authenticator: {error}"
-                            ));
-                        }
-                    },
-                    Err(message) => status_label.set_text(&message),
-                }
-            },
-        );
+        file_dialog.open(Some(&window_for_qr), Some(&cancellable), move |result| {
+            finish_file_dialog(dialog_id);
+            let Ok(file) = result else {
+                return;
+            };
+            let Some(path) = file.path() else {
+                status_label.set_text("The selected image is not available as a local file.");
+                return;
+            };
+            match decode_otpauth_qr_image(&path) {
+                Ok(uri) => match parse_otpauth_uri(uri.as_str()) {
+                    Ok(_) => {
+                        uri_field.set_text(uri.as_str());
+                        status_label.set_text(
+                            "QR code decoded. Review the imported URI, then select Add account.",
+                        );
+                    }
+                    Err(error) => {
+                        status_label.set_text(&format!(
+                            "The QR code does not contain a supported authenticator: {error}"
+                        ));
+                    }
+                },
+                Err(message) => status_label.set_text(&message),
+            }
+        });
     });
 
     save.connect_clicked(move |_| {
