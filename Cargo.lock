@@ -940,13 +940,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "suika-argon2-bench"
-version = "0.1.0"
-dependencies = [
- "suika-core",
-]
-
-[[package]]
 name = "suika-core"
 version = "0.1.0"
 dependencies = [
