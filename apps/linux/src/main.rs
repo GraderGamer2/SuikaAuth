@@ -3364,6 +3364,27 @@ mod tests {
     use std::sync::atomic::{AtomicU64, Ordering};
 
     #[test]
+    fn closing_the_main_window_cancels_an_active_file_dialog() {
+        let (dialog_id, cancellable) = begin_file_dialog();
+
+        assert!(!cancellable.is_cancelled());
+        cancel_active_file_dialog();
+
+        assert!(cancellable.is_cancelled());
+        finish_file_dialog(dialog_id);
+    }
+
+    #[test]
+    fn closing_the_main_window_does_not_cancel_a_finished_file_dialog() {
+        let (dialog_id, cancellable) = begin_file_dialog();
+        finish_file_dialog(dialog_id);
+
+        cancel_active_file_dialog();
+
+        assert!(!cancellable.is_cancelled());
+    }
+
+    #[test]
     fn parameter_dropdowns_map_presets_and_custom_values() {
         assert_eq!(selected_parameter(0, 1, 0, ""), Ok(30));
         assert_eq!(selected_parameter(0, 7, 0, "42"), Ok(42));
