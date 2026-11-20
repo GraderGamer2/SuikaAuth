@@ -2606,7 +2606,9 @@ fn refresh_selected_account(
 ) {
     let Some(id) = selected_id else {
         widgets.issuer.set_text("Select an account");
-        widgets.account_label.set_text("Choose an account from the list to view its one-time password.");
+        widgets
+            .account_label
+            .set_text("Choose an account from the list to view its one-time password.");
         widgets.code.set_text("------");
         widgets.countdown.set_text("");
         widgets.copy.set_visible(false);
