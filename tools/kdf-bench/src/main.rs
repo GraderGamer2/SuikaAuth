@@ -2,12 +2,11 @@ use std::env;
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
-use suika_core::crypto::{derive_wrapping_key, KdfParams, SALT_BYTES};
+use suika_core::crypto::{KdfParams, SALT_BYTES, derive_wrapping_key};
 
 const DEFAULT_SAMPLE_COUNT: usize = 5;
 const MAX_SAMPLE_COUNT: usize = 20;
-const BENCHMARK_PASSWORD: &[u8] =
-    b"SuikaAuthenticator synthetic Argon2id benchmark input only";
+const BENCHMARK_PASSWORD: &[u8] = b"SuikaAuthenticator synthetic Argon2id benchmark input only";
 const BENCHMARK_SALT: [u8; SALT_BYTES] = [0x5A; SALT_BYTES];
 
 fn main() -> ExitCode {
@@ -99,12 +98,8 @@ fn run_benchmark(sample_count: usize) -> Result<(), String> {
 
 fn derive_once() -> Result<Duration, String> {
     let started = Instant::now();
-    let key = derive_wrapping_key(
-        BENCHMARK_PASSWORD,
-        &BENCHMARK_SALT,
-        KdfParams::PRODUCTION,
-    )
-    .map_err(|error| format!("Production Argon2id derivation failed: {error}"))?;
+    let key = derive_wrapping_key(BENCHMARK_PASSWORD, &BENCHMARK_SALT, KdfParams::PRODUCTION)
+        .map_err(|error| format!("Production Argon2id derivation failed: {error}"))?;
     std::hint::black_box(&key);
     let elapsed = started.elapsed();
     drop(key);
