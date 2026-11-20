@@ -2587,6 +2587,7 @@ fn confirm_remove_account(
     );
 }
 
+/// GTK widgets shared by the selection callback and the selected-account refresh timer.
 #[derive(Clone)]
 struct SelectedAccountWidgets {
     issuer: Label,
