@@ -96,7 +96,7 @@ Status: **Milestone 7 — Encrypted backup and restore (Linux/Android implementa
 - [x] Commit the root and Android JNI Cargo-generated Cargo.lock files and verify locked CI builds.
 - [x] Test file replacement and recovery behavior under interruption.
 - [ ] Perform abrupt process-kill and power-loss durability tests on target Linux and Android filesystems.
-- [ ] Measure idle RAM, unlocked RAM, binary/APK size, and vault unlock latency.
+- [ ] Measure idle RAM, unlocked RAM, binary/APK size, and vault unlock latency (deferred until release-readiness or a demonstrated practical issue).
 - [ ] Review logs, crash output, permissions, clipboard behavior, and memory lifetime.
 - [ ] Add production signing and release provenance only after the release process is designed.
 - [ ] Keep temporary CI build artifacts at exactly one-day retention.
