@@ -2587,7 +2587,6 @@ fn confirm_remove_account(
     );
 }
 
-
 fn refresh_selected_account(
     selected_id: Option<[u8; 16]>,
     unlocked: &Rc<RefCell<Option<AuthenticatedVault>>>,
@@ -3169,9 +3168,7 @@ fn show_accounts_page(
             .selected_row()
             .is_none_or(|selected| !selected.is_visible());
         if selected_is_hidden {
-            if let Some((first_visible, _)) =
-                search_rows.iter().find(|(row, _)| row.is_visible())
-            {
+            if let Some((first_visible, _)) = search_rows.iter().find(|(row, _)| row.is_visible()) {
                 list_for_search.select_row(Some(first_visible));
             } else {
                 list_for_search.unselect_all();
@@ -3245,10 +3242,9 @@ fn show_accounts_page(
         let Some(id) = selected_for_remove.get() else {
             return;
         };
-        if let (Some(stack), Some(window)) = (
-            stack_for_remove.upgrade(),
-            window_for_remove.upgrade(),
-        ) {
+        if let (Some(stack), Some(window)) =
+            (stack_for_remove.upgrade(), window_for_remove.upgrade())
+        {
             confirm_remove_account(
                 &window,
                 &stack,
@@ -3261,9 +3257,8 @@ fn show_accounts_page(
 
     if count == 0 {
         detail_issuer.set_text("No accounts yet");
-        detail_account.set_text(
-            "Add an account or import an existing authenticator export to get started.",
-        );
+        detail_account
+            .set_text("Add an account or import an existing authenticator export to get started.");
         detail_code.set_text("—");
         detail_countdown.set_text("");
     } else if let Some(first_row) = list.row_at_index(0) {
