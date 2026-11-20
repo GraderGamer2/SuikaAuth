@@ -45,6 +45,8 @@ thread_local! {
     static ACTIVE_FILE_DIALOG: RefCell<Option<(u64, gio::Cancellable)>> = const { RefCell::new(None) };
 }
 
+// GtkFileDialog may be backed by a separate desktop-portal process. Keep its
+// async request cancellable so closing the owning window cannot orphan a chooser.
 fn begin_file_dialog() -> (u64, gio::Cancellable) {
     let id = FILE_DIALOG_GENERATION.with(|generation| {
         let next = generation.get().wrapping_add(1);
