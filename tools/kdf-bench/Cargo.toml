@@ -1,0 +1,13 @@
+[package]
+name = "suika-argon2-bench"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[[bin]]
+name = "suika-argon2-bench"
+path = "src/main.rs"
+
+[dependencies]
+suika-core = { path = "../../crates/suika-core" }

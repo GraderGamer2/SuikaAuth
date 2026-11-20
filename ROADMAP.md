@@ -24,7 +24,8 @@ Status: **Milestone 7 — Encrypted backup and restore (Linux/Android implementa
 - [x] Add RFC 4226 and RFC 6238 test vectors.
 - [x] Add bounded RFC 4648 Base32 decoding with zeroizing input and output buffers.
 - [x] Run formatting, tests, and static analysis on CI and correct all findings.
-- [ ] Benchmark the production 128 MiB Argon2id profile on Linux and Android hardware.
+- [x] Add a standalone release-mode benchmark utility that exercises the production 128 MiB Argon2id derivation path; build Linux x86-64 and Android arm64-v8a/x86_64 binaries in CI.
+- [ ] Run the benchmark on target Linux and Android hardware and record device/OS details, test conditions, and median timings.
 - [x] Review the core API and cryptographic dependency feature tree in CI.
 
 ## 3. Versioned encrypted vault container

@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/suika-core", "apps/linux"]
+members = ["crates/suika-core", "apps/linux", "tools/kdf-bench"]
 resolver = "3"
 
 [workspace.package]

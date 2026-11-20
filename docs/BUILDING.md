@@ -44,6 +44,30 @@ To download a build:
 
 GitHub requires sign-in and repository read access. The artifact expires after one day.
 
+## Measuring the production Argon2id profile
+
+CI publishes standalone benchmark utilities separately from the application artifacts:
+
+- `suika-authenticator-kdf-benchmark-linux-x86_64`
+- `suika-authenticator-kdf-benchmark-android` (arm64-v8a and x86_64 binaries)
+
+These are short-lived developer tools, not APKs and not application components. Each binary calls the shared core's `derive_wrapping_key` with `KdfParams::PRODUCTION` (128 MiB, 3 iterations, 4 lanes). It uses a fixed synthetic benchmark password and salt, performs one untimed warm-up, then measures five iterations by default. Pass a sample count from 1 through 20 to override the default. It does not read or modify a vault, access account secrets, or contact a network service.
+
+On Linux, extract the benchmark artifact and run:
+
+    ./suika-argon2-bench
+    ./suika-argon2-bench 10
+
+On a physical Android arm64 device, enable USB debugging, extract the Android benchmark artifact, and run the arm64 binary through ADB:
+
+    adb push suika-argon2-bench-android-arm64-v8a /data/local/tmp/suika-argon2-bench
+    adb shell chmod 0755 /data/local/tmp/suika-argon2-bench
+    adb shell /data/local/tmp/suika-argon2-bench 5
+
+The x86_64 binary is intended for x86_64 Android devices or emulators, not arm64 phones. No APK installation or root access is required.
+
+Record the exact device model, OS version, sample output, and whether battery-saver/thermal throttling was active. Let the device return to a normal temperature between repeated benchmark sessions. Compare medians from the same number of samples and similar thermal/power conditions; CI compilation verifies the binary but does not substitute for measurements on the target hardware. The benchmark uses the production KDF cost and allocates its full working memory, so close memory-intensive applications before running it on devices with limited free RAM.
+
 ## Release distinction
 
 Android debug APKs are development builds. A production APK requires deliberate signing configuration. The Linux executable is dynamically linked to GTK4 and required system libraries; it is not currently a fully self-contained Linux package.

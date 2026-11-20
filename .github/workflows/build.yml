@@ -12,6 +12,7 @@ on:
       - "rust-toolchain.toml"
       - "apps/linux/**"
       - "crates/**"
+      - "tools/**"
       - "android/**"
   pull_request:
     paths:
@@ -21,6 +22,7 @@ on:
       - "rust-toolchain.toml"
       - "apps/linux/**"
       - "crates/**"
+      - "tools/**"
       - "android/**"
   workflow_dispatch:
 
@@ -135,6 +137,33 @@ jobs:
         if: steps.detect.outputs.core_ready == 'true'
         run: cargo tree --locked --workspace -e features
 
+      - name: Build optimized Argon2id benchmark (Linux)
+        if: steps.detect.outputs.core_ready == 'true'
+        run: cargo build --locked --release --package suika-argon2-bench
+
+      - name: Prepare Linux Argon2id benchmark download
+        if: steps.detect.outputs.core_ready == 'true'
+        shell: bash
+        run: |
+          install -D -m 0755 target/release/suika-argon2-bench dist-kdf/suika-argon2-bench
+          cat > dist-kdf/BUILD-INFO.txt <<EOF
+          SuikaAuthenticator production Argon2id benchmark
+          Target: x86_64-unknown-linux-gnu
+          Profile: 128 MiB, 3 iterations, 4 lanes
+          Build profile: Cargo release
+          Commit: ${GITHUB_SHA}
+          EOF
+          sha256sum dist-kdf/suika-argon2-bench > dist-kdf/SHA256SUMS.txt
+
+      - name: Upload Linux Argon2id benchmark (expires after 1 day)
+        if: steps.detect.outputs.core_ready == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # actions/upload-artifact v7.0.2
+        with:
+          name: suika-authenticator-kdf-benchmark-linux-x86_64
+          path: dist-kdf/
+          if-no-files-found: error
+          retention-days: 1
+
       - name: Build optimized Linux executable
         if: steps.detect.outputs.linux_app_ready == 'true'
         run: cargo build --locked --release --package suika-authenticator-linux --bin suika-authenticator
@@ -238,6 +267,15 @@ jobs:
             -o android/app/src/main/jniLibs \
             build --locked --release --manifest-path android/native/Cargo.toml
 
+      - name: Build standalone Argon2id benchmark for Android devices
+        if: steps.detect.outputs.ready == 'true'
+        shell: bash
+        run: |
+          export ANDROID_NDK_HOME="$ANDROID_SDK_ROOT/ndk/28.2.13676358"
+          export ANDROID_NDK_ROOT="$ANDROID_NDK_HOME"
+          cargo ndk -t arm64-v8a -t x86_64 \
+            build --locked --release --manifest-path Cargo.toml --package suika-argon2-bench
+
       - name: Set up Gradle 9.6.0
         if: steps.detect.outputs.ready == 'true'
         uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # gradle/actions v6.4.1
@@ -263,5 +301,30 @@ jobs:
         with:
           name: suika-authenticator-android-debug
           path: dist/
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Prepare Android Argon2id benchmark downloads
+        if: steps.detect.outputs.ready == 'true'
+        shell: bash
+        run: |
+          install -D -m 0755 target/aarch64-linux-android/release/suika-argon2-bench dist-kdf/suika-argon2-bench-android-arm64-v8a
+          install -D -m 0755 target/x86_64-linux-android/release/suika-argon2-bench dist-kdf/suika-argon2-bench-android-x86_64
+          cat > dist-kdf/BUILD-INFO.txt <<EOF
+          SuikaAuthenticator production Argon2id benchmark
+          Targets: Android arm64-v8a and x86_64
+          Profile: 128 MiB, 3 iterations, 4 lanes
+          Build profile: Cargo release
+          Run the matching binary through adb shell from /data/local/tmp.
+          Commit: ${GITHUB_SHA}
+          EOF
+          sha256sum dist-kdf/suika-argon2-bench-* > dist-kdf/SHA256SUMS.txt
+
+      - name: Upload Android Argon2id benchmark binaries (expires after 1 day)
+        if: steps.detect.outputs.ready == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # actions/upload-artifact v7.0.2
+        with:
+          name: suika-authenticator-kdf-benchmark-android
+          path: dist-kdf/
           if-no-files-found: error
           retention-days: 1
