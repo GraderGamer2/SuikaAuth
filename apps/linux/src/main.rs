@@ -2587,40 +2587,45 @@ fn confirm_remove_account(
     );
 }
 
+#[derive(Clone)]
+struct SelectedAccountWidgets {
+    issuer: Label,
+    account_label: Label,
+    code: Label,
+    countdown: Label,
+    copy: Button,
+    advance: Button,
+    edit: Button,
+    remove: Button,
+}
+
 fn refresh_selected_account(
     selected_id: Option<[u8; 16]>,
     unlocked: &Rc<RefCell<Option<AuthenticatedVault>>>,
-    issuer: &Label,
-    account_label: &Label,
-    code: &Label,
-    countdown: &Label,
-    copy: &Button,
-    advance: &Button,
-    edit: &Button,
-    remove: &Button,
+    widgets: &SelectedAccountWidgets,
 ) {
     let Some(id) = selected_id else {
-        issuer.set_text("Select an account");
-        account_label.set_text("Choose an account from the list to view its one-time password.");
-        code.set_text("------");
-        countdown.set_text("");
-        copy.set_visible(false);
-        advance.set_visible(false);
-        edit.set_visible(false);
-        remove.set_visible(false);
+        widgets.issuer.set_text("Select an account");
+        widgets.account_label.set_text("Choose an account from the list to view its one-time password.");
+        widgets.code.set_text("------");
+        widgets.countdown.set_text("");
+        widgets.copy.set_visible(false);
+        widgets.advance.set_visible(false);
+        widgets.edit.set_visible(false);
+        widgets.remove.set_visible(false);
         return;
     };
 
     let guard = unlocked.borrow();
     let Some(vault) = guard.as_ref() else {
-        issuer.set_text("Vault locked");
-        account_label.set_text("Unlock the vault to view accounts.");
-        code.set_text("------");
-        countdown.set_text("");
-        copy.set_visible(false);
-        advance.set_visible(false);
-        edit.set_visible(false);
-        remove.set_visible(false);
+        widgets.issuer.set_text("Vault locked");
+        widgets.account_label.set_text("Unlock the vault to view accounts.");
+        widgets.code.set_text("------");
+        widgets.countdown.set_text("");
+        widgets.copy.set_visible(false);
+        widgets.advance.set_visible(false);
+        widgets.edit.set_visible(false);
+        widgets.remove.set_visible(false);
         return;
     };
 
@@ -2630,14 +2635,14 @@ fn refresh_selected_account(
         .iter()
         .find(|account| account.id() == &id)
     else {
-        issuer.set_text("Account unavailable");
-        account_label.set_text("This account is no longer in the vault.");
-        code.set_text("------");
-        countdown.set_text("");
-        copy.set_visible(false);
-        advance.set_visible(false);
-        edit.set_visible(false);
-        remove.set_visible(false);
+        widgets.issuer.set_text("Account unavailable");
+        widgets.account_label.set_text("This account is no longer in the vault.");
+        widgets.code.set_text("------");
+        widgets.countdown.set_text("");
+        widgets.copy.set_visible(false);
+        widgets.advance.set_visible(false);
+        widgets.edit.set_visible(false);
+        widgets.remove.set_visible(false);
         return;
     };
 
@@ -2646,10 +2651,10 @@ fn refresh_selected_account(
     } else {
         account.issuer()
     };
-    issuer.set_text(display_issuer);
-    account_label.set_text(account.label());
+    widgets.issuer.set_text(display_issuer);
+    widgets.account_label.set_text(account.label());
     let now = unix_time();
-    code.set_text(
+    widgets.code.set_text(
         &account
             .generate_code(now)
             .unwrap_or_else(|_| "------".to_owned()),
@@ -2658,19 +2663,19 @@ fn refresh_selected_account(
     match account.mode() {
         AccountMode::Totp { period_seconds } => {
             let remaining = period_seconds - (now % period_seconds);
-            countdown.set_text(&format!("Refreshes in {remaining} seconds"));
-            copy.set_visible(true);
-            advance.set_visible(false);
+            widgets.countdown.set_text(&format!("Refreshes in {remaining} seconds"));
+            widgets.copy.set_visible(true);
+            widgets.advance.set_visible(false);
         }
         AccountMode::Hotp { counter } => {
-            countdown.set_text(&format!("HOTP • Counter {counter}"));
-            copy.set_visible(false);
-            advance.set_visible(true);
+            widgets.countdown.set_text(&format!("HOTP • Counter {counter}"));
+            widgets.copy.set_visible(false);
+            widgets.advance.set_visible(true);
         }
     }
 
-    edit.set_visible(true);
-    remove.set_visible(true);
+    widgets.edit.set_visible(true);
+    widgets.remove.set_visible(true);
 }
 
 fn show_accounts_page(
@@ -2905,6 +2910,16 @@ fn show_accounts_page(
     advance.set_visible(false);
     edit.set_visible(false);
     remove.set_visible(false);
+    let detail_widgets = SelectedAccountWidgets {
+        issuer: detail_issuer.clone(),
+        account_label: detail_account.clone(),
+        code: detail_code.clone(),
+        countdown: detail_countdown.clone(),
+        copy: copy.clone(),
+        advance: advance.clone(),
+        edit: edit.clone(),
+        remove: remove.clone(),
+    };
     actions.append(&copy);
     actions.append(&advance);
     actions.append(&edit);
@@ -3124,14 +3139,7 @@ fn show_accounts_page(
     let account_ids = Rc::new(account_ids);
     let selected_for_list = selected_id.clone();
     let unlocked_for_list = unlocked.clone();
-    let selected_issuer = detail_issuer.clone();
-    let selected_account = detail_account.clone();
-    let selected_code = detail_code.clone();
-    let selected_countdown = detail_countdown.clone();
-    let selected_copy = copy.clone();
-    let selected_advance = advance.clone();
-    let selected_edit = edit.clone();
-    let selected_remove = remove.clone();
+    let selected_widgets_for_list = detail_widgets.clone();
     list.connect_row_selected(move |_, row| {
         let id = row.and_then(|row| {
             let index = row.index();
@@ -3142,18 +3150,7 @@ fn show_accounts_page(
             }
         });
         selected_for_list.set(id);
-        refresh_selected_account(
-            id,
-            &unlocked_for_list,
-            &selected_issuer,
-            &selected_account,
-            &selected_code,
-            &selected_countdown,
-            &selected_copy,
-            &selected_advance,
-            &selected_edit,
-            &selected_remove,
-        );
+        refresh_selected_account(id, &unlocked_for_list, &selected_widgets_for_list);
     });
 
     let search_rows = searchable_rows;
@@ -3183,10 +3180,10 @@ fn show_accounts_page(
             return;
         }
         let value = code_for_copy.text().to_string();
-        if value != "------" {
-            if let Some(display) = gtk::gdk::Display::default() {
-                copy_otp_to_clipboard(&display.clipboard(), value);
-            }
+        if value != "------"
+            && let Some(display) = gtk::gdk::Display::default()
+        {
+            copy_otp_to_clipboard(&display.clipboard(), value);
         }
     });
 
@@ -3268,14 +3265,7 @@ fn show_accounts_page(
     let selected_for_timer = selected_id.clone();
     let unlocked_for_timer = unlocked.clone();
     let page_for_timer = page.clone();
-    let issuer_for_timer = detail_issuer.clone();
-    let account_for_timer = detail_account.clone();
-    let code_for_timer = detail_code.clone();
-    let countdown_for_timer = detail_countdown.clone();
-    let copy_for_timer = copy.clone();
-    let advance_for_timer = advance.clone();
-    let edit_for_timer = edit.clone();
-    let remove_for_timer = remove.clone();
+    let widgets_for_timer = detail_widgets.clone();
     glib::source::timeout_add_seconds_local(1, move || {
         if count == 0 || !page_for_timer.is_mapped() {
             return ControlFlow::Break;
@@ -3284,14 +3274,7 @@ fn show_accounts_page(
         refresh_selected_account(
             selected_for_timer.get(),
             &unlocked_for_timer,
-            &issuer_for_timer,
-            &account_for_timer,
-            &code_for_timer,
-            &countdown_for_timer,
-            &copy_for_timer,
-            &advance_for_timer,
-            &edit_for_timer,
-            &remove_for_timer,
+            &widgets_for_timer,
         );
         ControlFlow::Continue
     });
