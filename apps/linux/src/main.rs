@@ -2622,7 +2622,9 @@ fn refresh_selected_account(
     let guard = unlocked.borrow();
     let Some(vault) = guard.as_ref() else {
         widgets.issuer.set_text("Vault locked");
-        widgets.account_label.set_text("Unlock the vault to view accounts.");
+        widgets
+            .account_label
+            .set_text("Unlock the vault to view accounts.");
         widgets.code.set_text("------");
         widgets.countdown.set_text("");
         widgets.copy.set_visible(false);
@@ -2639,7 +2641,9 @@ fn refresh_selected_account(
         .find(|account| account.id() == &id)
     else {
         widgets.issuer.set_text("Account unavailable");
-        widgets.account_label.set_text("This account is no longer in the vault.");
+        widgets
+            .account_label
+            .set_text("This account is no longer in the vault.");
         widgets.code.set_text("------");
         widgets.countdown.set_text("");
         widgets.copy.set_visible(false);
@@ -2666,12 +2670,16 @@ fn refresh_selected_account(
     match account.mode() {
         AccountMode::Totp { period_seconds } => {
             let remaining = period_seconds - (now % period_seconds);
-            widgets.countdown.set_text(&format!("Refreshes in {remaining} seconds"));
+            widgets
+                .countdown
+                .set_text(&format!("Refreshes in {remaining} seconds"));
             widgets.copy.set_visible(true);
             widgets.advance.set_visible(false);
         }
         AccountMode::Hotp { counter } => {
-            widgets.countdown.set_text(&format!("HOTP • Counter {counter}"));
+            widgets
+                .countdown
+                .set_text(&format!("HOTP • Counter {counter}"));
             widgets.copy.set_visible(false);
             widgets.advance.set_visible(true);
         }
